@@ -1,0 +1,10 @@
+# Python dependencies for Teams Shift Database and Alert
+
+pyautogui
+pywinauto
+opencv-python
+pytesseract
+Pillow
+APScheduler
+yagmail
+psutil

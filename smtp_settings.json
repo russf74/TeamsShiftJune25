@@ -1,0 +1,12 @@
+{
+  "SmtpHost": "smtp.gmail.com",
+  "SmtpPort": 587,
+  "EnableSsl": true,
+  "FromAddress": "russfray74@gmail.com",
+  "FromName": "Manor Shift Alert",
+  "FromPassword": "djke ghpm impg uoky",
+  "ToAddress": "russfray74@gmail.com",
+  "ToName": "Russ Fray",
+  "UseDefaultCredentials": false,
+  "DeliveryMethod": "Network"
+}

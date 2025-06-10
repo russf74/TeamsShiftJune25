@@ -1,0 +1,7 @@
+{
+  "scan_interval_minutes": 30,
+  "gmail_user": "",
+  "gmail_app_password": "",
+  "scan_interval_seconds": 60,
+  "window_geometry": "800x700+64+64"
+}
