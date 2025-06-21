@@ -1,7 +1,8 @@
 {
   "scan_interval_minutes": 30,
-  "gmail_user": "",
-  "gmail_app_password": "",
-  "scan_interval_seconds": 60,
+  "gmail_user": "russfray74@gmail.com",
+  "gmail_app_password": "qavx bfvv pspz ucpf",
+  "alert_email": "russfray74@gmail.com",
+  "scan_interval_seconds": 120,
   "window_geometry": "800x700+64+64"
 }

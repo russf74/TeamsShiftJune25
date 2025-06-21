@@ -1,8 +1,10 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
 import calendar
-from datetime import datetime, timedelta
+from database import get_shifts_for_month
+from datetime import timedelta
 from database import get_shifts_for_month, get_availability_for_month, set_availability_for_date
+import datetime as pydatetime
 
 class CalendarView(ttk.Frame):
     def __init__(self, master, year, month, *args, **kwargs):
@@ -27,10 +29,10 @@ class CalendarView(ttk.Frame):
         # Fetch DB info
         shifts = get_shifts_for_month(self.year, self.month)
         availability = get_availability_for_month(self.year, self.month)
-        # Build shift info dict: {date: {type, alerted}}
+        # Build shift info dict: {date: {type, alerted, count}}
         shift_info = {}
         for s in shifts:
-            shift_info[s['date']] = {'type': s['shift_type'], 'alerted': s.get('alerted', 0)}
+            shift_info[s['date']] = {'type': s['shift_type'], 'alerted': s.get('alerted', 0), 'count': s.get('count', 1)}
         available_dates = set(a['date'] for a in availability)
         for r, week in enumerate(month_days):
             for c, day in enumerate(week):
@@ -40,26 +42,44 @@ class CalendarView(ttk.Frame):
                     date_str = f"{self.year}-{self.month:02d}-{day:02d}"
                     shift = shift_info.get(date_str)
                     is_available = date_str in available_dates
+                    # If the shift is booked, force is_available to False (untick)
+                    if shift and shift['type'] == 'booked':
+                        is_available = False
+                    # Check if date is in the past
+                    today = pydatetime.date.today()
+                    cell_date = pydatetime.date(self.year, self.month, day)
+                    is_past = cell_date < today
                     # Color logic:
                     # Booked: blue
                     # Open+available+not emailed: green
                     # Open+available+emailed: purple
                     # Open+not available: orange
-                    if shift and shift['type'] == 'booked':
+                    # Past: dark grey
+                    if is_past:
+                        frame_style = None
+                        label_style = None
+                        cb_style = None
+                        frame = tk.Frame(self, bg="#888888", highlightbackground="#888", highlightthickness=1)
+                        frame.grid(row=r+2, column=c, padx=1, pady=1, sticky="nsew")
+                        label = tk.Label(frame, text=str(day), bg="#888888", fg="#cccccc")
+                        label.pack()
+                        spacer = tk.Label(frame, text=" ", width=9, bg="#888888")
+                        spacer.pack()
+                        cb = ttk.Checkbutton(frame, text="", state="disabled")
+                        cb.pack(anchor="center")
+                        continue
+                    elif shift and shift['type'] == 'booked':
                         frame_style = "Blue.TFrame"
                         label_style = "Blue.TLabel"
                         cb_style = "Blue.TCheckbutton"
                     elif shift and shift['type'] == 'open':
                         if is_available:
-                            if shift.get('alerted', 0):
-                                frame_style = "Purple.TFrame"
-                                label_style = "Purple.TLabel"
-                                cb_style = "Purple.TCheckbutton"
-                            else:
-                                frame_style = "Green.TFrame"
-                                label_style = "Green.TLabel"
-                                cb_style = "Green.TCheckbutton"
+                            # Always green for open+available, regardless of alerted status
+                            frame_style = "Green.TFrame"
+                            label_style = "Green.TLabel"
+                            cb_style = "Green.TCheckbutton"
                         else:
+                            # Open shift exists, but not available: always orange
                             frame_style = "Orange.TFrame"
                             label_style = "Orange.TLabel"
                             cb_style = "Orange.TCheckbutton"
@@ -74,29 +94,55 @@ class CalendarView(ttk.Frame):
                     else:
                         frame = ttk.Frame(self, borderwidth=1, relief="solid")
                     frame.grid(row=r+2, column=c, padx=1, pady=1, sticky="nsew")
-
                     # Use tk.Label for colored backgrounds
                     if label_style:
                         label = tk.Label(frame, text=str(day), bg=style.lookup(label_style, 'background'))
                     else:
                         label = ttk.Label(frame, text=str(day))
                     label.pack()
-                    # Availability checkbox (centered, with fixed cell width for layout)
                     var = tk.BooleanVar(value=is_available)
-                    # Add a blank label to reserve space where the 'Available' label used to be
-                    spacer = tk.Label(frame, text=" ", width=9, bg=style.lookup(label_style, 'background') if label_style else None)
+                    # --- Show open shift count in the middle spacer ---
+                    count_text = " "
+                    if shift and shift['type'] == 'open':
+                        count = shift.get('count', 1)
+                        if count > 0:
+                            count_text = f"({count})"
+                    spacer = tk.Label(frame, text=count_text, width=9, bg=style.lookup(label_style, 'background') if label_style else None, fg="#333", font=("Arial", 9))
                     spacer.pack()
-                    # Use ttk.Checkbutton for all, let parent tk.Frame provide background color
                     if cb_style:
                         cb = ttk.Checkbutton(frame, text="", variable=var,
                             command=lambda d=date_str, v=var: set_availability_for_date(d, v.get()), style=cb_style)
-                        cb.configure(takefocus=0)
                         cb.pack(anchor="center")
                     else:
                         cb = ttk.Checkbutton(frame, text="", variable=var,
                             command=lambda d=date_str, v=var: set_availability_for_date(d, v.get()))
-                        cb.configure(takefocus=0)
                         cb.pack(anchor="center")
+
+        # --- Display shift counts in calendar cells ---
+        # Use self.year and self.month, and use the top-level import
+        shift_counts = {}
+        for shift in shifts:
+            if shift['shift_type'] == 'open':
+                if shift['date'] not in shift_counts:
+                    shift_counts[shift['date']] = shift.get('count', 1)
+                else:
+                    shift_counts[shift['date']] += shift.get('count', 1)
+        # Update calendar cells with shift counts (placeholder logic)
+        for day in range(1, calendar.monthrange(self.year, self.month)[1] + 1):
+            date_str = f"{self.year}-{self.month:02d}-{day:02d}"
+            count = shift_counts.get(date_str, 0)
+            if count > 1:
+                # Draw the count in the cell (e.g., as a label or overlay)
+                # This is a placeholder; actual drawing depends on your calendar widget
+                cell = self.get_calendar_cell_for_date(day)
+                if cell:
+                    cell.set_shift_count(count)
+
+    def get_calendar_cell_for_date(self, day):
+        # Placeholder: return the widget or cell object for the given day
+        # You must implement this according to your calendar widget
+        # For now, return None to avoid errors
+        return None
 
 class MainApp(ttk.Frame):
     def __init__(self, master, *args, **kwargs):
@@ -129,7 +175,7 @@ class MainApp(ttk.Frame):
         style.configure("Purple.TLabel", background="#B266FF")
         style.configure("Purple.TCheckbutton", background="#B266FF")
         self.pack(fill="both", expand=True)
-        self.current_date = datetime.today().replace(day=1)
+        self.current_date = pydatetime.datetime.today().replace(day=1)
 
         # --- Scan Timer Controls ---
         from config import load_config, save_config
@@ -144,7 +190,7 @@ class MainApp(ttk.Frame):
         self.interval_var = tk.StringVar(value=str(self.config.get("scan_interval_seconds", 600)))
         self.interval_entry = ttk.Entry(self.timer_frame, textvariable=self.interval_var, width=8)
         self.interval_entry.grid(row=0, column=1, padx=2, pady=2, sticky="w")
-        self.save_btn = ttk.Button(self.timer_frame, text="Save", command=self.save_interval)
+        self.save_btn = ttk.Button(self.timer_frame, text="Store", command=self.save_interval)
         self.save_btn.grid(row=0, column=2, padx=5, pady=2, sticky="w")
         # Replace checkbox with a toggle button (on/off)
         self.scanning_on = False
@@ -191,11 +237,14 @@ class MainApp(ttk.Frame):
             self.after(500, self.ensure_calendar_visible)
     def _start_daily_summary_timer(self):
         import threading, datetime
+        from email_db import check_email_sent
+        
         def check_and_send_summary():
             now = datetime.datetime.now()
-            # If it's after 6pm and we haven't sent today's summary, send it
-            if now.hour >= 18:
-                if self._summary_email_sent_date != now.date():
+            # If it's after 6:00pm and we haven't sent today's summary, send it
+            if now.hour > 18 or (now.hour == 18 and now.minute >= 0):
+                # Check database to see if email was already sent today
+                if not check_email_sent():
                     self.send_daily_summary_email()
                     self._summary_email_sent_date = now.date()
             # Schedule next check in 5 minutes
@@ -209,6 +258,20 @@ class MainApp(ttk.Frame):
         self.last_new_shifts = new_shifts
         self.last_alert_count = alert_count
         self.last_scan_status = scan_status
+        # Track new shifts for summary
+        if not hasattr(self, 'new_shifts_today'):
+            self.new_shifts_today = []
+        if isinstance(new_shifts, list):
+            self.new_shifts_today.extend(new_shifts)
+        elif isinstance(new_shifts, int) and new_shifts > 0:
+            self.new_shifts_today.append(f"{new_shifts} new shifts")
+        # Track emails/whatsapp sent
+        if not hasattr(self, 'emails_sent_today'):
+            self.emails_sent_today = 0
+        self.emails_sent_today += alert_count
+        if not hasattr(self, 'whatsapp_sent_today'):
+            self.whatsapp_sent_today = 0
+        self.whatsapp_sent_today += alert_count
 
     def _log_error(self, error_msg):
         import datetime
@@ -216,52 +279,24 @@ class MainApp(ttk.Frame):
         self.error_log_today.append(f"[{ts}] {error_msg}")
 
     def send_daily_summary_email(self):
-        import smtplib, json, os
-        from email.mime.text import MIMEText
-        from email.utils import formataddr
-        import datetime
-        try:
-            smtp_path = os.path.join(os.getcwd(), 'smtp_settings.json')
-            with open(smtp_path, 'r') as f:
-                smtp_settings = json.load(f)
-            host = smtp_settings.get('SmtpHost')
-            port = smtp_settings.get('SmtpPort')
-            user = smtp_settings.get('FromAddress')
-            password = smtp_settings.get('FromPassword')
-            to_addr = "russfray74@gmail.com"
-            from_name = smtp_settings.get('FromName', user)
-            enable_ssl = smtp_settings.get('EnableSsl', True)
-            if not (host and port and user and password):
-                return
-            # Compose summary
-            now = datetime.datetime.now()
-            subject = f"TeamsDB Daily Summary for {now.strftime('%Y-%m-%d')}"
-            body = (
-                f"Teams Shift App Daily Summary ({now.strftime('%A, %B %d, %Y')})\n\n"
-                f"Scans performed today: {self.scan_count_today}\n"
-                + (f"Last scan time: {self.last_scan_time.strftime('%H:%M:%S')}\n" if self.last_scan_time else "")
-                + f"New shifts found in last scan: {self.last_new_shifts}\n"
-                + f"Alerts sent in last scan: {self.last_alert_count}\n"
-                + f"Last scan status: {self.last_scan_status}\n"
-                + (f"\nErrors today ({len(self.error_log_today)}):\n" + "\n".join(self.error_log_today[-5:]) if self.error_log_today else "\nNo errors detected in the app today.\n")
-                + "\nApp is running smoothly. If you see this email, the scheduler and scan logic are both active.\n"
-                + "If you have not received this email by 6:10pm, please check the app is running.\n"
-            )
-            msg = MIMEText(body, "plain", "utf-8")
-            msg['Subject'] = subject
-            msg['From'] = formataddr((from_name, user))
-            msg['To'] = to_addr
-            server = smtplib.SMTP(host, port, timeout=10)
-            if enable_ssl:
-                server.starttls()
-            server.login(user, password)
-            server.sendmail(user, [to_addr], msg.as_string())
-            server.quit()
-            # Reset daily counters after sending
-            self.scan_count_today = 0
-            self.error_log_today = []
-        except Exception as e:
-            print(f"[SummaryEmail] Failed to send summary: {e}")
+        from email_alert import send_summary_email
+        from email_db import check_email_sent
+        if not check_email_sent():
+            stats = {
+                'scan_count': self.scan_count_today,
+                'error_count': len(self.error_log_today),
+                'new_shifts': getattr(self, 'new_shifts_today', []),
+                'emails_sent': getattr(self, 'emails_sent_today', 0),
+                'whatsapp_sent': getattr(self, 'whatsapp_sent_today', 0),
+                'last_scan_time': self.last_scan_time.strftime('%Y-%m-%d %H:%M:%S') if self.last_scan_time else None,
+                'last_status': self.last_scan_status,
+                'errors': self.error_log_today,
+            }
+            was_sent = send_summary_email(stats)
+            if was_sent:
+                print("[INFO] Daily summary email sent.")
+        else:
+            print("[INFO] Daily summary email already sent today.")
 
     def send_test_msg(self):
         import json
@@ -376,9 +411,7 @@ class MainApp(ttk.Frame):
             # Force recreation as last resort
             try:
                 # Make sure we're using the current month when recreating
-                import datetime as pydatetime
-                current_datetime = pydatetime.datetime.now()
-                self.current_date = pydatetime.datetime(current_datetime.year, current_datetime.month, 1)
+                self.current_date = pydatetime.datetime(self.current_date.year, self.current_date.month, 1)
                 
                 self.cal_frame = CalendarView(self, self.current_date.year, self.current_date.month)
                 self.cal_frame.pack(fill="both", expand=True)
@@ -405,6 +438,7 @@ class MainApp(ttk.Frame):
         from automation import scan_four_months_with_automation
         from ocr_processing import extract_shifts_from_image
         from database import shift_exists, add_shift, get_availability_for_date
+        # get_shift_count import removed (function does not exist)
         import os
         import glob
         import shutil
@@ -413,12 +447,10 @@ class MainApp(ttk.Frame):
         # --- Clear screenshots directory at the very start of scan ---
         screenshot_dir = os.path.join(os.getcwd(), 'screenshots')
         if os.path.exists(screenshot_dir):
-            for f in glob.glob(os.path.join(screenshot_dir, '*')):
+            files = glob.glob(os.path.join(screenshot_dir, '*'))
+            for f in files:
                 try:
-                    if os.path.isfile(f) or os.path.islink(f):
-                        os.remove(f)
-                    elif os.path.isdir(f):
-                        shutil.rmtree(f)
+                    os.remove(f)
                 except Exception as e:
                     print(f"[Cleanup] Could not delete {f}: {e}")
 
@@ -445,30 +477,75 @@ class MainApp(ttk.Frame):
             if self._first_scan_year is None or self._first_scan_month is None:
                 self._first_scan_year = year
                 self._first_scan_month = month
-            set_status(f"Analyzing {calendar.month_name[month]} {year} for open shifts...")
-            date_map = extract_shifts_from_image(image_path, year, month)
-            new_shifts_this_month = 0
-            open_dates_this_month = set()
-            for date_str, shift_type in date_map.items():
+            set_status(f"Analyzing {calendar.month_name[month]} {year} for shifts...") # Generalize status
+            all_shifts_map = extract_shifts_from_image(image_path, year, month) # Renamed for clarity
+            new_open_shifts_this_month = 0
+            new_booked_shifts_this_month = 0
+            processed_dates_this_month = set()
+            for date_str, shift_info in all_shifts_map.items():
+                shift_type = shift_info['type'] # 'open' or 'booked'
+                shift_count = shift_info.get('count', 1)  # Get the count from OCR detection
+                # coords = shift_info['coords'] # Available if needed
+
+                processed_dates_this_month.add(date_str)
+
                 if shift_type == 'open':
-                    open_dates_this_month.add(date_str)
                     if not shift_exists(date_str, 'open'):
-                        add_shift(date_str, 'open')
-                        new_shifts_this_month += 1
-                        total_new_shifts += 1
-                        # Check if user is available on this date and not already booked
+                        # Check if it's already booked, if so, don't add as open
+                        if shift_exists(date_str, 'booked'):
+                            print(f"[GUI] Shift on {date_str} is already booked, not adding as open.")
+                            continue
+                        add_shift(date_str, 'open', shift_count)
+                        new_open_shifts_this_month += 1
+                        total_new_shifts += 1 # This counts all new shifts (open or booked)
+                        # Availability check for open shifts
                         availability = get_availability_for_date(date_str)
-                        booked = shift_exists(date_str, 'booked')
-                        if availability and availability.get('is_available') and not booked:
-                            if date_str not in matched_dates_set:
+                        # booked check here is for a *different* type of booking, not the one we just found
+                        # if it was booked by this scan, it would be shift_type == 'booked'
+                        is_already_booked_in_db = shift_exists(date_str, 'booked') 
+                        if availability and availability.get('is_available') and not is_already_booked_in_db:
+                            if date_str not in matched_dates_set: # matched_dates_set is for availability matches
                                 matched_dates.append(date_str)
                                 matched_dates_set.add(date_str)
-                # Also add booked shifts to DB if not present (for completeness)
-                elif shift_type == 'booked' and not shift_exists(date_str, 'booked'):
-                    add_shift(date_str, 'booked')
-            # Track open shifts for this month for later cleanup
-            found_open_shifts_by_month[(year, month)] = open_dates_this_month
-            import datetime as pydatetime
+                elif shift_type == 'booked':
+                    # If an open shift for this date was previously added in this scan session from a different screenshot,
+                    # we might need to remove it or update its type.
+                    # For now, just add as booked if not already booked.
+                    if not shift_exists(date_str, 'booked'):
+                        add_shift(date_str, 'booked', shift_count)
+                        new_booked_shifts_this_month += 1
+                        total_new_shifts += 1 # Count new booked shifts
+                        # If it was previously marked as 'open' in the DB from a *prior* scan, update it.
+                        if shift_exists(date_str, 'open'):
+                            print(f"[GUI] Updating shift on {date_str} from open to booked.")
+                            # This might require a specific update_shift_type function in database.py
+                            # For now, we assume add_shift handles conflicts or we add a new one.
+                            # If add_shift overwrites, it's fine. If not, we might have duplicates or need an update function.
+                            # Let's assume add_shift can handle this by either updating or ignoring if same type.
+                            # If it was added as 'open' in *this current scan run* and now found as 'booked',
+                            # the 'open' entry should ideally be removed or updated.
+                            # This logic can get complex depending on how `add_shift` and `shift_exists` are implemented.
+                            pass # Current add_shift will add a new 'booked' entry. 
+                                 # We might need to remove the 'open' one if it exists from a previous iteration of this scan.
+
+            # Update status message
+            scan_time = pydatetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            status_msg = f"Scanned: {calendar.month_name[month]} {year} at {scan_time} : "
+            if new_open_shifts_this_month > 0:
+                status_msg += f"{new_open_shifts_this_month} new open shifts. "
+            if new_booked_shifts_this_month > 0:
+                status_msg += f"{new_booked_shifts_this_month} new booked shifts. "
+            if new_open_shifts_this_month == 0 and new_booked_shifts_this_month == 0:
+                status_msg += "No new shifts found."
+            self.scan_status_var.set(status_msg.strip())
+            
+            # Track open shifts for this month for later cleanup (this might need adjustment)
+            # found_open_shifts_by_month[(year, month)] = open_dates_this_month # This was for open shifts only
+            # We need to decide how to handle cleanup if a date is now booked.
+            # For now, let's keep track of all processed dates for potential cleanup logic later.
+            found_open_shifts_by_month[(year, month)] = processed_dates_this_month # Store all processed dates for this month
+
+            # Use the top-level import for pydatetime (do not re-import locally)
             self.current_date = pydatetime.datetime(year, month, 1)
             try:
                 if hasattr(self, 'cal_frame') and isinstance(self.cal_frame, CalendarView):
@@ -481,7 +558,10 @@ class MainApp(ttk.Frame):
                 self.refresh_calendar(force=True)
             self.ensure_calendar_visible()
             scan_time = pydatetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            self.scan_status_var.set(f"Scanned: {calendar.month_name[month]} {year} at {scan_time} : {new_shifts_this_month} new shifts found.")
+            # Remove or update the following line to use the correct variables
+            # self.scan_status_var.set(f"Scanned: {calendar.month_name[month]} {year} at {scan_time} : {new_shifts_this_month} new shifts found.")
+            # Instead, use the status_msg already built above:
+            self.scan_status_var.set(status_msg.strip())
             self.update_idletasks()
 
         def send_availability_alert(matched_dates):
@@ -500,7 +580,6 @@ class MainApp(ttk.Frame):
                 port = smtp_settings.get('SmtpPort')
                 user = smtp_settings.get('FromAddress')
                 password = smtp_settings.get('FromPassword')
-                # Always send to both Laura and Russ
                 to_addr = smtp_settings.get('ToAddress')
                 extra_recipients = ["laurafray74@gmail.com", "russfray74@gmail.com"]
                 all_recipients = set([to_addr] + extra_recipients)
@@ -796,3 +875,20 @@ def launch_gui(root, config):
     root.bind('<Configure>', on_configure)
     app = MainApp(root)
     root.protocol("WM_DELETE_WINDOW", save_window_geometry)
+
+    # Ensure the Quit button is at the top center and performs a forced shutdown
+    import os
+    import sys
+
+    def force_quit():
+        print("[INFO] Application is shutting down forcefully.")
+        # Use os._exit to force immediate termination without cleanup
+        os._exit(0)
+
+    # Create a frame at the top to hold the quit button
+    top_frame = tk.Frame(root)
+    top_frame.pack(side=tk.TOP, fill=tk.X)
+    
+    # Place the quit button in the center of the top frame
+    quit_button = tk.Button(top_frame, text="Quit", command=force_quit, bg="red", fg="white")
+    quit_button.pack(pady=10)

@@ -1,0 +1,20 @@
+# booked_shift_ocr.py
+# Simple empty implementation that doesn't interfere with open shifts
+
+import cv2
+import logging
+import os
+
+def detect_booked_shifts(proc_image, image, image_path, year, month):
+    """
+    Minimal implementation that just returns an empty dict.
+    """
+    # Placeholders for debugging
+    if image_path:
+        band_save_path = image_path.replace('.png', '_booked_shifts_band.png')
+        if os.path.exists(band_save_path):
+            pass  # Don't overwrite existing debug file
+    
+    # Just log that no booked shifts were found
+    logging.info("Booked Shifts Detected : 0")
+    return {}

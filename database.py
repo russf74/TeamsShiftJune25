@@ -28,18 +28,30 @@ def clear_all_shifts():
     c.execute("DELETE FROM shifts")
     conn.commit()
     conn.close()
-def shift_exists(date_str, shift_type='open'):
+def shift_exists(date_str, shift_type='open', count=None):
     conn = sqlite3.connect(get_db_path())
     c = conn.cursor()
-    c.execute("SELECT 1 FROM shifts WHERE date = ? AND shift_type = ?", (date_str, shift_type))
-    exists = c.fetchone() is not None
-    conn.close()
-    return exists
+    if count is not None:
+        c.execute("SELECT count FROM shifts WHERE date = ? AND shift_type = ?", (date_str, shift_type))
+        row = c.fetchone()
+        conn.close()
+        return row is not None and row[0] >= count
+    else:
+        c.execute("SELECT 1 FROM shifts WHERE date = ? AND shift_type = ?", (date_str, shift_type))
+        exists = c.fetchone() is not None
+        conn.close()
+        return exists
 
-def add_shift(date_str, shift_type='open'):
+def add_shift(date_str, shift_type='open', count=1):
     conn = sqlite3.connect(get_db_path())
     c = conn.cursor()
-    c.execute("INSERT INTO shifts(date, shift_type) VALUES (?, ?)", (date_str, shift_type))
+    # Upsert: always set count to the new value
+    c.execute("SELECT count FROM shifts WHERE date = ? AND shift_type = ?", (date_str, shift_type))
+    row = c.fetchone()
+    if row:
+        c.execute("UPDATE shifts SET count = ?, alerted = 0 WHERE date = ? AND shift_type = ?", (count, date_str, shift_type))
+    else:
+        c.execute("INSERT INTO shifts(date, shift_type, count) VALUES (?, ?, ?)", (date_str, shift_type, count))
     conn.commit()
     conn.close()
 import sqlite3
@@ -55,8 +67,10 @@ def init_db():
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         date TEXT NOT NULL,
         shift_type TEXT NOT NULL,
+        count INTEGER DEFAULT 1,
         alerted INTEGER DEFAULT 0,
-        details TEXT
+        details TEXT,
+        UNIQUE(date, shift_type)
     )''')
     c.execute('''CREATE TABLE IF NOT EXISTS availability (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -78,10 +92,10 @@ def get_shifts_for_month(year, month):
         end = f"{year+1}-01-01"
     else:
         end = f"{year}-{month+1:02d}-01"
-    c.execute("SELECT date, shift_type, alerted FROM shifts WHERE date >= ? AND date < ?", (start, end))
+    c.execute("SELECT date, shift_type, count, alerted FROM shifts WHERE date >= ? AND date < ?", (start, end))
     rows = c.fetchall()
     conn.close()
-    return [{"date": row[0], "shift_type": row[1], "alerted": row[2]} for row in rows]
+    return [{"date": row[0], "shift_type": row[1], "count": row[2], "alerted": row[3]} for row in rows]
 
 def mark_shift_alerted(date_str):
     conn = sqlite3.connect(get_db_path())
@@ -124,3 +138,31 @@ def get_availability_for_date(date_str):
     is_available = c.fetchone() is not None
     conn.close()
     return {"date": date_str, "is_available": is_available}
+
+def remove_past_shifts():
+    import sqlite3
+    from datetime import date
+    conn = sqlite3.connect(get_db_path())
+    c = conn.cursor()
+    today = date.today().isoformat()
+    c.execute("DELETE FROM shifts WHERE date < ?", (today,))
+    conn.commit()
+    conn.close()
+def migrate_shifts_table_add_count():
+    """
+    Ensures the 'count' column exists in the shifts table. Adds it if missing.
+    """
+    db_path = get_db_path() if 'get_db_path' in globals() else os.path.join(os.path.dirname(__file__), 'shifts.db')
+    conn = sqlite3.connect(db_path)
+    c = conn.cursor()
+    # Check if 'count' column exists
+    c.execute("PRAGMA table_info(shifts)")
+    columns = [row[1] for row in c.fetchall()]
+    if "count" not in columns:
+        print("[DB] Migrating: adding 'count' column to shifts table...")
+        c.execute("ALTER TABLE shifts ADD COLUMN count INTEGER DEFAULT 1")
+        conn.commit()
+    conn.close()
+
+# Always run migration on import
+migrate_shifts_table_add_count()
