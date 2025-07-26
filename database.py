@@ -43,15 +43,25 @@ def shift_exists(date_str, shift_type='open', count=None):
         return exists
 
 def add_shift(date_str, shift_type='open', count=1):
+    import datetime
+    
+    # Validate date format before adding to database
+    try:
+        datetime.datetime.strptime(date_str, "%Y-%m-%d")
+    except ValueError:
+        print(f"[DATABASE] Rejecting invalid date format: {date_str}")
+        return  # Don't add malformed dates to database
+    
     conn = sqlite3.connect(get_db_path())
     c = conn.cursor()
     # Upsert: always set count to the new value
     c.execute("SELECT count FROM shifts WHERE date = ? AND shift_type = ?", (date_str, shift_type))
     row = c.fetchone()
+    now_str = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     if row:
         c.execute("UPDATE shifts SET count = ?, alerted = 0 WHERE date = ? AND shift_type = ?", (count, date_str, shift_type))
     else:
-        c.execute("INSERT INTO shifts(date, shift_type, count) VALUES (?, ?, ?)", (date_str, shift_type, count))
+        c.execute("INSERT INTO shifts(date, shift_type, count, created_at) VALUES (?, ?, ?, ?)", (date_str, shift_type, count, now_str))
     conn.commit()
     conn.close()
 import sqlite3
@@ -148,9 +158,9 @@ def remove_past_shifts():
     c.execute("DELETE FROM shifts WHERE date < ?", (today,))
     conn.commit()
     conn.close()
-def migrate_shifts_table_add_count():
+def migrate_shifts_table_add_count_and_created_at():
     """
-    Ensures the 'count' column exists in the shifts table. Adds it if missing.
+    Ensures the 'count' and 'created_at' columns exist in the shifts table. Adds them if missing.
     """
     db_path = get_db_path() if 'get_db_path' in globals() else os.path.join(os.path.dirname(__file__), 'shifts.db')
     conn = sqlite3.connect(db_path)
@@ -162,7 +172,11 @@ def migrate_shifts_table_add_count():
         print("[DB] Migrating: adding 'count' column to shifts table...")
         c.execute("ALTER TABLE shifts ADD COLUMN count INTEGER DEFAULT 1")
         conn.commit()
+    if "created_at" not in columns:
+        print("[DB] Migrating: adding 'created_at' column to shifts table...")
+        c.execute("ALTER TABLE shifts ADD COLUMN created_at TEXT")
+        conn.commit()
     conn.close()
 
 # Always run migration on import
-migrate_shifts_table_add_count()
+migrate_shifts_table_add_count_and_created_at()

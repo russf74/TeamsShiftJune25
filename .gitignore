@@ -1,6 +1,42 @@
+# Python
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
+*.py[cod]
+*$py.class
+
+# VS Code
 .vscode/
+
+# Database files
+*.db
 *.db-journal
+shifts.db
+
+# Screenshots directory (temporary files)
+screenshots/
+
+# Video recordings (temporary files)
+*.mp4
+*.avi
+midnight_reset*.mp4
+
+# Email database (may contain sensitive info)
+email.db
+
+# Configuration files that may contain sensitive data
+smtp_settings.json
+
+# Backup files
+*.bak
+*.backup
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+
+# Windows
+Thumbs.db
+Desktop.ini

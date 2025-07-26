@@ -141,13 +141,17 @@ def detect_booked_shifts(proc_image, image, image_path, year, month):
                         }
                         date_strs.append(date_str)
                     except ValueError:
-                        result[f'booked_block_{i}'] = {'type': 'booked', 'coords': block['rect']}
+                        print(f"[BOOKED OCR] Invalid date for block {i}, day={day}, skipping")
+                        # Don't add invalid entries to result
                 else:
-                    result[f'booked_block_{i}'] = {'type': 'booked', 'coords': block['rect']}
+                    print(f"[BOOKED OCR] No valid day text for block {i}, skipping")
+                    # Don't add invalid entries to result
             except ValueError:
-                result[f'booked_block_{i}'] = {'type': 'booked', 'coords': block['rect']}
+                print(f"[BOOKED OCR] Day parsing failed for block {i}, skipping")
+                # Don't add invalid entries to result
         else:
-            result[f'booked_block_{i}'] = {'type': 'booked', 'coords': block['rect']}
+            print(f"[BOOKED OCR] No OCR text for block {i}, skipping")
+            # Don't add invalid entries to result
     # Save a debug image showing all booked date regions
     debug_dates_path = image_path.replace('.png', '_booked_shifts_date_regions.png')
     cv2.imwrite(debug_dates_path, booked_date_regions_img)

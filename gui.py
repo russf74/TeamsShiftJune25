@@ -14,129 +14,134 @@ class CalendarView(ttk.Frame):
         self.build_widgets()
 
     def build_widgets(self):
-        style = ttk.Style()
-        # Remove all children widgets to clear previous month's content
-        for widget in self.winfo_children():
-            widget.destroy()
-        self.update_idletasks()
-        cal = calendar.Calendar()
-        month_days = cal.monthdayscalendar(self.year, self.month)
-        header = f"{calendar.month_name[self.month]} {self.year}"
-        ttk.Label(self, text=header, font=("Arial", 16)).grid(row=0, column=0, columnspan=7, pady=5)
-        days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-        for idx, day in enumerate(days):
-            ttk.Label(self, text=day, font=("Arial", 10, "bold")).grid(row=1, column=idx)
-        # Fetch DB info
-        shifts = get_shifts_for_month(self.year, self.month)
-        availability = get_availability_for_month(self.year, self.month)
-        # Build shift info dict: {date: {type, alerted, count}}
-        shift_info = {}
-        for s in shifts:
-            shift_info[s['date']] = {'type': s['shift_type'], 'alerted': s.get('alerted', 0), 'count': s.get('count', 1)}
-        available_dates = set(a['date'] for a in availability)
-        for r, week in enumerate(month_days):
-            for c, day in enumerate(week):
-                if day == 0:
-                    ttk.Label(self, text="").grid(row=r+2, column=c)
-                else:
-                    date_str = f"{self.year}-{self.month:02d}-{day:02d}"
-                    shift = shift_info.get(date_str)
-                    is_available = date_str in available_dates
-                    # If the shift is booked, force is_available to False (untick)
-                    if shift and shift['type'] == 'booked':
-                        is_available = False
-                    # Check if date is in the past
-                    today = pydatetime.date.today()
-                    cell_date = pydatetime.date(self.year, self.month, day)
-                    is_past = cell_date < today
-                    # Color logic:
-                    # Booked: blue
-                    # Open+available+not emailed: green
-                    # Open+available+emailed: purple
-                    # Open+not available: orange
-                    # Past: dark grey
-                    if is_past:
-                        frame_style = None
-                        label_style = None
-                        cb_style = None
-                        frame = tk.Frame(self, bg="#888888", highlightbackground="#888", highlightthickness=1)
-                        frame.grid(row=r+2, column=c, padx=1, pady=1, sticky="nsew")
-                        label = tk.Label(frame, text=str(day), bg="#888888", fg="#cccccc")
-                        label.pack()
-                        spacer = tk.Label(frame, text=" ", width=9, bg="#888888")
-                        spacer.pack()
-                        cb = ttk.Checkbutton(frame, text="", state="disabled")
-                        cb.pack(anchor="center")
-                        continue
-                    elif shift and shift['type'] == 'booked':
-                        frame_style = "Blue.TFrame"
-                        label_style = "Blue.TLabel"
-                        cb_style = "Blue.TCheckbutton"
-                    elif shift and shift['type'] == 'open':
-                        if is_available:
-                            # Always green for open+available, regardless of alerted status
-                            frame_style = "Green.TFrame"
-                            label_style = "Green.TLabel"
-                            cb_style = "Green.TCheckbutton"
+        try:
+            style = ttk.Style()
+            # Remove all children widgets to clear previous month's content
+            for widget in self.winfo_children():
+                widget.destroy()
+            self.update_idletasks()
+            cal = calendar.Calendar()
+            month_days = cal.monthdayscalendar(self.year, self.month)
+            header = f"{calendar.month_name[self.month]} {self.year}"
+            ttk.Label(self, text=header, font=("Arial", 16)).grid(row=0, column=0, columnspan=7, pady=5)
+            days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+            for idx, day in enumerate(days):
+                ttk.Label(self, text=day, font=("Arial", 10, "bold")).grid(row=1, column=idx)
+            # Fetch DB info
+            shifts = get_shifts_for_month(self.year, self.month)
+            availability = get_availability_for_month(self.year, self.month)
+            # Build shift info dict: {date: {type, alerted, count}}
+            shift_info = {}
+            for s in shifts:
+                shift_info[s['date']] = {'type': s['shift_type'], 'alerted': s.get('alerted', 0), 'count': s.get('count', 1)}
+            available_dates = set(a['date'] for a in availability)
+            for r, week in enumerate(month_days):
+                for c, day in enumerate(week):
+                    if day == 0:
+                        ttk.Label(self, text="").grid(row=r+2, column=c)
+                    else:
+                        date_str = f"{self.year}-{self.month:02d}-{day:02d}"
+                        shift = shift_info.get(date_str)
+                        is_available = date_str in available_dates
+                        # If the shift is booked, force is_available to False (untick)
+                        if shift and shift['type'] == 'booked':
+                            is_available = False
+                        # Check if date is in the past
+                        today = pydatetime.date.today()
+                        cell_date = pydatetime.date(self.year, self.month, day)
+                        is_past = cell_date < today
+                        # Color logic:
+                        # Booked: blue
+                        # Open+available+not emailed: green
+                        # Open+available+emailed: purple
+                        # Open+not available: orange
+                        # Past: dark grey
+                        if is_past:
+                            frame_style = None
+                            label_style = None
+                            cb_style = None
+                            frame = tk.Frame(self, bg="#888888", highlightbackground="#888", highlightthickness=1)
+                            frame.grid(row=r+2, column=c, padx=1, pady=1, sticky="nsew")
+                            label = tk.Label(frame, text=str(day), bg="#888888", fg="#cccccc")
+                            label.pack()
+                            spacer = tk.Label(frame, text=" ", width=9, bg="#888888")
+                            spacer.pack()
+                            cb = ttk.Checkbutton(frame, text="", state="disabled")
+                            cb.pack(anchor="center")
+                            continue
+                        elif shift and shift['type'] == 'booked':
+                            frame_style = "Blue.TFrame"
+                            label_style = "Blue.TLabel"
+                            cb_style = "Blue.TCheckbutton"
+                        elif shift and shift['type'] == 'open':
+                            if is_available:
+                                # Always green for open+available, regardless of alerted status
+                                frame_style = "Green.TFrame"
+                                label_style = "Green.TLabel"
+                                cb_style = "Green.TCheckbutton"
+                            else:
+                                # Open shift exists, but not available: always orange
+                                frame_style = "Orange.TFrame"
+                                label_style = "Orange.TLabel"
+                                cb_style = "Orange.TCheckbutton"
                         else:
-                            # Open shift exists, but not available: always orange
-                            frame_style = "Orange.TFrame"
-                            label_style = "Orange.TLabel"
-                            cb_style = "Orange.TCheckbutton"
-                    else:
-                        frame_style = None
-                        label_style = None
-                        cb_style = None
+                            frame_style = None
+                            label_style = None
+                            cb_style = None
 
-                    # Use tk.Frame for colored backgrounds to avoid ttk style bleed-through
-                    if frame_style:
-                        frame = tk.Frame(self, bg=style.lookup(frame_style, 'background'), highlightbackground="#888", highlightthickness=1)
-                    else:
-                        frame = ttk.Frame(self, borderwidth=1, relief="solid")
-                    frame.grid(row=r+2, column=c, padx=1, pady=1, sticky="nsew")
-                    # Use tk.Label for colored backgrounds
-                    if label_style:
-                        label = tk.Label(frame, text=str(day), bg=style.lookup(label_style, 'background'))
-                    else:
-                        label = ttk.Label(frame, text=str(day))
-                    label.pack()
-                    var = tk.BooleanVar(value=is_available)
-                    # --- Show open shift count in the middle spacer ---
-                    count_text = " "
-                    if shift and shift['type'] == 'open':
-                        count = shift.get('count', 1)
-                        if count > 0:
-                            count_text = f"({count})"
-                    spacer = tk.Label(frame, text=count_text, width=9, bg=style.lookup(label_style, 'background') if label_style else None, fg="#333", font=("Arial", 9))
-                    spacer.pack()
-                    if cb_style:
-                        cb = ttk.Checkbutton(frame, text="", variable=var,
-                            command=lambda d=date_str, v=var: set_availability_for_date(d, v.get()), style=cb_style)
-                        cb.pack(anchor="center")
-                    else:
-                        cb = ttk.Checkbutton(frame, text="", variable=var,
-                            command=lambda d=date_str, v=var: set_availability_for_date(d, v.get()))
-                        cb.pack(anchor="center")
+                        # Use tk.Frame for colored backgrounds to avoid ttk style bleed-through
+                        if frame_style:
+                            frame = tk.Frame(self, bg=style.lookup(frame_style, 'background'), highlightbackground="#888", highlightthickness=1)
+                        else:
+                            frame = ttk.Frame(self, borderwidth=1, relief="solid")
+                        frame.grid(row=r+2, column=c, padx=1, pady=1, sticky="nsew")
+                        # Use tk.Label for colored backgrounds
+                        if label_style:
+                            label = tk.Label(frame, text=str(day), bg=style.lookup(label_style, 'background'))
+                        else:
+                            label = ttk.Label(frame, text=str(day))
+                        label.pack()
+                        var = tk.BooleanVar(value=is_available)
+                        # --- Show open shift count in the middle spacer ---
+                        count_text = " "
+                        if shift and shift['type'] == 'open':
+                            count = shift.get('count', 1)
+                            if count > 0:
+                                count_text = f"({count})"
+                        spacer = tk.Label(frame, text=count_text, width=9, bg=style.lookup(label_style, 'background') if label_style else None, fg="#333", font=("Arial", 9))
+                        spacer.pack()
+                        if cb_style:
+                            cb = ttk.Checkbutton(frame, text="", variable=var,
+                                command=lambda d=date_str, v=var: set_availability_for_date(d, v.get()), style=cb_style)
+                            cb.pack(anchor="center")
+                        else:
+                            cb = ttk.Checkbutton(frame, text="", variable=var,
+                                command=lambda d=date_str, v=var: set_availability_for_date(d, v.get()))
+                            cb.pack(anchor="center")
 
-        # --- Display shift counts in calendar cells ---
-        # Use self.year and self.month, and use the top-level import
-        shift_counts = {}
-        for shift in shifts:
-            if shift['shift_type'] == 'open':
-                if shift['date'] not in shift_counts:
-                    shift_counts[shift['date']] = shift.get('count', 1)
-                else:
-                    shift_counts[shift['date']] += shift.get('count', 1)
-        # Update calendar cells with shift counts (placeholder logic)
-        for day in range(1, calendar.monthrange(self.year, self.month)[1] + 1):
-            date_str = f"{self.year}-{self.month:02d}-{day:02d}"
-            count = shift_counts.get(date_str, 0)
-            if count > 1:
-                # Draw the count in the cell (e.g., as a label or overlay)
-                # This is a placeholder; actual drawing depends on your calendar widget
-                cell = self.get_calendar_cell_for_date(day)
-                if cell:
-                    cell.set_shift_count(count)
+            # --- Display shift counts in calendar cells ---
+            # Use self.year and self.month, and use the top-level import
+            shift_counts = {}
+            for shift in shifts:
+                if shift['shift_type'] == 'open':
+                    if shift['date'] not in shift_counts:
+                        shift_counts[shift['date']] = shift.get('count', 1)
+                    else:
+                        shift_counts[shift['date']] += shift.get('count', 1)
+            # Update calendar cells with shift counts (placeholder logic)
+            for day in range(1, calendar.monthrange(self.year, self.month)[1] + 1):
+                date_str = f"{self.year}-{self.month:02d}-{day:02d}"
+                count = shift_counts.get(date_str, 0)
+                if count > 1:
+                    # Draw the count in the cell (e.g., as a label or overlay)
+                    # This is a placeholder; actual drawing depends on your calendar widget
+                    cell = self.get_calendar_cell_for_date(day)
+                    if cell:
+                        cell.set_shift_count(count)
+        except Exception as e:
+            import traceback
+            print(f"[CalendarView] Error in build_widgets: {e}")
+            traceback.print_exc()
 
     def get_calendar_cell_for_date(self, day):
         # Placeholder: return the widget or cell object for the given day
@@ -193,14 +198,14 @@ class MainApp(ttk.Frame):
         self.save_btn = ttk.Button(self.timer_frame, text="Store", command=self.save_interval)
         self.save_btn.grid(row=0, column=2, padx=5, pady=2, sticky="w")
         # Replace checkbox with a toggle button (on/off)
-        self.scanning_on = False
-        self.toggle_btn = ttk.Button(self.timer_frame, text="Start Scanning", command=self.toggle_scanning, width=14)
+        self.scanning_on = True  # Start scanning by default
+        self.toggle_btn = ttk.Button(self.timer_frame, text="Stop Scanning", command=self.toggle_scanning, width=14)
         self.toggle_btn.grid(row=0, column=3, padx=10, pady=2, sticky="w")
         self.countdown_var = tk.StringVar(value="")
         # Place countdown label on a new row, smaller font
         self.countdown_label = ttk.Label(self.timer_frame, textvariable=self.countdown_var, font=("Arial", 9))
         self.countdown_label.grid(row=2, column=0, columnspan=5, padx=5, pady=(2, 0), sticky="w")
-        self.timer_running = False
+        self.timer_running = True  # Start timer immediately
         self.remaining = int(self.interval_var.get())
         self._scanning = False  # Flag to prevent calendar updates during scanning
 
@@ -211,6 +216,9 @@ class MainApp(ttk.Frame):
         self.clear_btn.grid(row=1, column=1, padx=5, pady=4, sticky="w")
         self.test_email_btn = ttk.Button(self.timer_frame, text="Test Msg", command=self.send_test_msg)
         self.test_email_btn.grid(row=1, column=2, padx=5, pady=4, sticky="w")
+        # Add Test Shift App Reset button (after calendar and header setup)
+        self.reset_btn = ttk.Button(self.timer_frame, text="Test Shift App Reset", command=self.trigger_shift_app_reset)
+        self.reset_btn.grid(row=1, column=3, padx=5, pady=4, sticky="w")
 
         # Scan status label always just below timer_frame
         self.scan_status_var = tk.StringVar(value="")
@@ -235,18 +243,267 @@ class MainApp(ttk.Frame):
             self.cal_frame.pack(fill="both", expand=True, side="top", anchor="n")
             # Try to recreate the calendar after a short delay
             self.after(500, self.ensure_calendar_visible)
+
+        # Start scanning automatically after GUI is initialized
+        self.after(1000, self.start_countdown)  # Start countdown after 1 second delay
+
+    def trigger_shift_app_reset(self):
+        import threading
+        threading.Thread(target=self.refresh_teams_shifts, daemon=True).start()
+
+    def _record_screen_video(self, duration_seconds=300, fps=5, filename="midnight_reset_recording.mp4"):
+        """
+        Record screen during midnight reset process
+        Args:
+            duration_seconds: How long to record (default 5 minutes)
+            fps: Frames per second (default 5 for small file size)
+            filename: Output filename (overwrites each day)
+        """
+        import cv2
+        import numpy as np
+        import pyautogui
+        import time
+        
+        try:
+            # Get screen dimensions
+            screen_size = pyautogui.size()
+            
+            # Calculate scaling to achieve 1280x720 resolution
+            target_width, target_height = 1280, 720
+            scale_x = target_width / screen_size.width
+            scale_y = target_height / screen_size.height
+            scale = min(scale_x, scale_y)  # Maintain aspect ratio
+            
+            # Calculate actual output dimensions
+            output_width = int(screen_size.width * scale)
+            output_height = int(screen_size.height * scale)
+            
+            # Define codec and create VideoWriter object
+            fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+            out = cv2.VideoWriter(filename, fourcc, fps, (output_width, output_height))
+            
+            if not out.isOpened():
+                print(f"[Recording] Failed to open video writer for {filename}")
+                return
+            
+            start_time = time.time()
+            frame_interval = 1.0 / fps  # Time between frames
+            next_frame_time = start_time
+            
+            print(f"[Recording] Starting screen recording: {filename} at {output_width}x{output_height}, {fps} FPS")
+            
+            while time.time() - start_time < duration_seconds:
+                current_time = time.time()
+                
+                # Only capture frame if it's time for the next one
+                if current_time >= next_frame_time:
+                    # Capture screenshot
+                    screenshot = pyautogui.screenshot()
+                    frame = np.array(screenshot)
+                    frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+                    
+                    # Resize frame to target resolution
+                    if scale != 1.0:
+                        frame = cv2.resize(frame, (output_width, output_height), interpolation=cv2.INTER_AREA)
+                    
+                    # Write frame to video
+                    out.write(frame)
+                    
+                    # Calculate next frame time
+                    next_frame_time += frame_interval
+                else:
+                    # Small sleep to prevent excessive CPU usage
+                    time.sleep(0.1)
+                    
+        except Exception as e:
+            print(f"[Recording] Error during screen recording: {e}")
+            import traceback
+            traceback.print_exc()
+        finally:
+            if 'out' in locals():
+                out.release()
+            print(f"[Recording] Screen recording completed: {filename}")
+
+    def refresh_teams_shifts(self):
+        import pyautogui
+        import time
+        import threading
+        from datetime import datetime
+        from email_alert import send_email_alert
+        
+        # Start screen recording in background thread
+        video_filename = "midnight_reset.mp4"  # Single filename that overwrites each day
+        
+        self.scan_status_var.set("Starting screen recording and refreshing Teams Shifts app...")
+        
+        # Start recording in background thread
+        recording_thread = threading.Thread(
+            target=self._record_screen_video,
+            args=(300, 5, video_filename),  # 5 minutes, 5 FPS, single filename
+            daemon=True
+        )
+        recording_thread.start()
+        
+        self.scan_status_var.set("Pausing scanning and refreshing Teams Shifts app...")
+        # Pause scanning
+        self.timer_running = False
+        self.scanning_on = False
+        self._scanning = False
+        max_attempts = 10
+        for attempt in range(1, max_attempts + 1):
+            try:
+                self.scan_status_var.set(f"[Reset] Attempt {attempt} of {max_attempts}...")
+                # Step 1: Click Calendar (skip if not found - already selected)
+                try:
+                    self.scan_status_var.set("[Reset] Looking for calendar.png...")
+                    cal_btn = pyautogui.locateCenterOnScreen('calendar.png', confidence=0.8)
+                    if not cal_btn:
+                        self.scan_status_var.set("[Reset] Calendar button not found. Assuming already selected, proceeding...")
+                    else:
+                        self.scan_status_var.set(f"[Reset] Found calendar button at {cal_btn}")
+                        pyautogui.click(cal_btn)
+                        time.sleep(10)
+                except pyautogui.ImageNotFoundException:
+                    self.scan_status_var.set("[Reset] Calendar button not found. Assuming already selected, proceeding...")
+                except Exception as e:
+                    self.scan_status_var.set(f"[Reset] Error clicking calendar: {e}. Retrying...")
+                    time.sleep(2)
+                    continue
+
+                # Step 2: Click Dots (...)
+                try:
+                    self.scan_status_var.set("[Reset] Looking for dots.png...")
+                    dots_btn = pyautogui.locateCenterOnScreen('dots.png', confidence=0.8)
+                    if not dots_btn:
+                        self.scan_status_var.set("[Reset] Dots button not found. Retrying...")
+                        time.sleep(2)
+                        continue
+                    self.scan_status_var.set(f"[Reset] Found dots button at {dots_btn}")
+                    pyautogui.click(dots_btn)
+                    time.sleep(2)
+                except pyautogui.ImageNotFoundException:
+                    self.scan_status_var.set("[Reset] Dots button not found. Retrying...")
+                    time.sleep(2)
+                    continue
+                except Exception as e:
+                    self.scan_status_var.set(f"[Reset] Error clicking dots: {e}. Retrying...")
+                    time.sleep(2)
+                    continue
+
+                # Step 3: Click Shifts
+                try:
+                    self.scan_status_var.set("[Reset] Looking for shifts.png...")
+                    # Use the same simple approach as other buttons
+                    shifts_btn = pyautogui.locateCenterOnScreen('shifts.png', confidence=0.9)
+                    if not shifts_btn:
+                        self.scan_status_var.set("[Reset] Shifts button not found. Retrying...")
+                        time.sleep(2)
+                        continue
+                    self.scan_status_var.set(f"[Reset] Found shifts button at {shifts_btn}")
+                    pyautogui.click(shifts_btn)
+                    time.sleep(10)
+                except pyautogui.ImageNotFoundException:
+                    self.scan_status_var.set("[Reset] Shifts button not found (ImageNotFoundException). Retrying...")
+                    time.sleep(2)
+                    continue
+                except Exception as e:
+                    self.scan_status_var.set(f"[Reset] Error clicking shifts: {e}. Retrying...")
+                    time.sleep(2)
+                    continue
+
+                # Step 4: Wait for Shifts loaded
+                loaded = False
+                for _ in range(10):
+                    try:
+                        loaded_img = pyautogui.locateOnScreen('shiftloaded.png', confidence=0.8)
+                        if loaded_img:
+                            loaded = True
+                            break
+                    except pyautogui.ImageNotFoundException:
+                        # Image not found, continue waiting
+                        pass
+                    except Exception as e:
+                        print(f"[Reset] Error checking for shifts loaded: {e}")
+                    time.sleep(1)
+                if not loaded:
+                    self.scan_status_var.set("[Reset] Shifts did not finish loading. Retrying...")
+                    time.sleep(2)
+                    continue
+
+                # Success!
+                self.scan_status_var.set("Teams Shifts app refreshed successfully. Resuming scanning.")
+                
+                # Send success confirmation email
+                try:
+                    send_email_alert(
+                        "Teams Shifts app reset successful",
+                        "Teams Shifts app was successfully refreshed at midnight. All systems are running normally.",
+                        "russfray74@gmail.com"
+                    )
+                    print(f"[Reset] Success confirmation email sent")
+                except Exception as e:
+                    print(f"[Reset] Failed to send success email: {e}")
+                
+                self.timer_running = True
+                self.scanning_on = True
+                self._scanning = False
+                self.start_countdown()
+                return
+            except Exception as e:
+                import traceback
+                self.scan_status_var.set(f"[Reset] Error: {e}. Retrying...")
+                traceback.print_exc()
+                time.sleep(2)
+        # If we reach here, all attempts failed
+        self.scan_status_var.set("Teams refresh failed after 10 attempts. Emailing admin.")
+        try:
+            send_email_alert(
+                "teams refresh failed",
+                "Teams Shifts app could not be refreshed after 10 attempts.",
+                "russfray74@gmail.com"
+            )
+        except Exception as e:
+            print(f"[Reset] Failed to send failure email: {e}")
+        # Remain paused
+        return
+
     def _start_daily_summary_timer(self):
         import threading, datetime
         from email_db import check_email_sent
         
         def check_and_send_summary():
+            import traceback
             now = datetime.datetime.now()
-            # If it's after 6:00pm and we haven't sent today's summary, send it
-            if now.hour > 18 or (now.hour == 18 and now.minute >= 0):
-                # Check database to see if email was already sent today
-                if not check_email_sent():
-                    self.send_daily_summary_email()
-                    self._summary_email_sent_date = now.date()
+            try:
+                # If it's after 8:00pm and we haven't sent today's summary, send it
+                if now.hour >= 20:  # 8:00pm or later
+                    # Check database to see if email was already sent today
+                    if not check_email_sent():
+                        print(f"[INFO] Attempting to send daily summary email at {now.strftime('%Y-%m-%d %H:%M:%S')}")
+                        try:
+                            self.send_daily_summary_email()
+                            self._summary_email_sent_date = now.date()
+                            print(f"[INFO] Daily summary email sent at {now.strftime('%Y-%m-%d %H:%M:%S')}")
+                        except Exception as e:
+                            print(f"[ERROR] Failed to send daily summary email: {e}")
+                            traceback.print_exc()
+                    else:
+                        print(f"[INFO] Daily summary email already sent today, skipping at {now.strftime('%Y-%m-%d %H:%M:%S')}")
+                
+                # Check for midnight Teams refresh (once per day)
+                if now.hour == 0 and now.minute < 5:  # Only in first 5 minutes of midnight
+                    if not hasattr(self, '_last_refresh_date') or self._last_refresh_date != now.date():
+                        print(f"[INFO] Triggering midnight Teams Shifts refresh at {now.strftime('%Y-%m-%d %H:%M:%S')}")
+                        try:
+                            self.trigger_shift_app_reset()
+                            self._last_refresh_date = now.date()
+                        except Exception as e:
+                            print(f"[ERROR] Failed to trigger midnight refresh: {e}")
+                            traceback.print_exc()
+                
+            except Exception as e:
+                print(f"[ERROR] Exception in summary email scheduler: {e}")
+                traceback.print_exc()
             # Schedule next check in 5 minutes
             threading.Timer(300, check_and_send_summary).start()
         check_and_send_summary()
@@ -487,6 +744,14 @@ class MainApp(ttk.Frame):
                 shift_count = shift_info.get('count', 1)  # Get the count from OCR detection
                 # coords = shift_info['coords'] # Available if needed
 
+                # Validate date format before processing
+                try:
+                    import datetime
+                    datetime.datetime.strptime(date_str, "%Y-%m-%d")
+                except ValueError:
+                    print(f"[GUI] Skipping invalid date format: {date_str}")
+                    continue
+
                 processed_dates_this_month.add(date_str)
 
                 if shift_type == 'open':
@@ -505,6 +770,14 @@ class MainApp(ttk.Frame):
                         is_already_booked_in_db = shift_exists(date_str, 'booked') 
                         if availability and availability.get('is_available') and not is_already_booked_in_db:
                             if date_str not in matched_dates_set: # matched_dates_set is for availability matches
+                                matched_dates.append(date_str)
+                                matched_dates_set.add(date_str)
+                    else:
+                        # Existing open shift - check if user is now available (for changed availability)
+                        availability = get_availability_for_date(date_str)
+                        is_already_booked_in_db = shift_exists(date_str, 'booked')
+                        if availability and availability.get('is_available') and not is_already_booked_in_db:
+                            if date_str not in matched_dates_set:
                                 matched_dates.append(date_str)
                                 matched_dates_set.add(date_str)
                 elif shift_type == 'booked':

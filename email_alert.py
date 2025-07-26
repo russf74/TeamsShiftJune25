@@ -1,7 +1,7 @@
 import yagmail
 from config import load_config
 from datetime import datetime, timedelta
-from email_db import mark_email_sent, check_email_sent
+from email_db import mark_email_sent, check_email_sent, get_last_email_sent_time
 
 def send_email_alert(subject, body, to_email):
     config = load_config()
@@ -90,12 +90,6 @@ def send_summary_email(stats=None):
                 body.append(f"<li>Last scan time: <b>{fmt_short(dt)}</b></li>")
             except Exception:
                 body.append(f"<li>Last scan time: <b>{stats['last_scan_time']}</b></li>")
-        if stats.get('last_status'):
-            try:
-                dt = datetime.strptime(stats['last_status'], '%Y-%m-%d %H:%M:%S')
-                body.append(f"<li>Last scan result: <b>{fmt_short(dt)}</b></li>")
-            except Exception:
-                body.append(f"<li>Last scan result: <b>{stats['last_status']}</b></li>")
         if stats.get('errors'):
             body.append("<li>Error log:<ul>")
             for err in stats['errors']:
@@ -106,11 +100,13 @@ def send_summary_email(stats=None):
     body.append("</ul>")
     # --- Shift Status Section ---
     body.append("<h3>Shift Status</h3>")
+    # Get last email sent time for filtering
+    last_email_time = get_last_email_sent_time()
     # Get all future shifts (not just this/next month)
     today = now.date()
     conn = sqlite3.connect(config.get('db_path', 'shifts.db'))
     c = conn.cursor()
-    c.execute("SELECT date, shift_type FROM shifts WHERE date > ? ORDER BY date ASC", (today.isoformat(),))
+    c.execute("SELECT date, shift_type, count, created_at FROM shifts WHERE date > ? ORDER BY date ASC", (today.isoformat(),))
     shifts = c.fetchall()
     conn.close()
     # Get all future availability
@@ -123,18 +119,33 @@ def send_summary_email(stats=None):
         dt = datetime.strptime(date_str, "%Y-%m-%d")
         return dt.strftime("%a %d %b")
     shift_lines = []
-    for date_str, shift_type in shifts:
+    for date_str, shift_type, count, created_at in shifts:
         tag = ""
+        count_str = f"(Open : {count})" if shift_type == 'open' else f"(Booked : {count})"
+        is_new = False
+        if created_at and last_email_time:
+            try:
+                created_dt = datetime.strptime(created_at, "%Y-%m-%d %H:%M:%S")
+                if created_dt > last_email_time:
+                    is_new = True
+            except Exception:
+                pass
         if shift_type == 'booked':
-            tag = "(Booked)"
-            shift_lines.append(f"<li>{readable_date(date_str)} {tag}</li>")
+            tag = f"(Booked : {count})"
+            line = f"<li>{readable_date(date_str)} {tag}"
         elif shift_type == 'open':
             if date_str in availability:
-                tag = "(Matched)"
-                shift_lines.append(f"<li><b>{readable_date(date_str)} {tag}</b></li>")
+                tag = f"(Matched : {count})"
+                line = f"<li><b>{readable_date(date_str)} {tag}</b>"
             else:
-                tag = "(Open)"
-                shift_lines.append(f"<li>{readable_date(date_str)} {tag}</li>")
+                tag = f"(Open : {count})"
+                line = f"<li>{readable_date(date_str)} {tag}"
+        else:
+            line = f"<li>{readable_date(date_str)} {tag}"
+        if is_new:
+            line += " <span style='color:green'>(NEW!)</span>"
+        line += "</li>"
+        shift_lines.append(line)
     if shift_lines:
         body.append("<ul>")
         body.extend(shift_lines)
@@ -142,7 +153,6 @@ def send_summary_email(stats=None):
     else:
         body.append("<p>No future shifts found.</p>")
     body.append("<p>This is an automated daily summary from your Teams Shift Database and Alert application.</p>")
-    from email_db import mark_email_sent
     import yagmail
     try:
         yag = yagmail.SMTP(user=user, password=app_password)
