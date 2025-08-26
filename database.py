@@ -113,6 +113,15 @@ def mark_shift_alerted(date_str):
     c.execute("UPDATE shifts SET alerted = 1 WHERE date = ? AND shift_type = 'open'", (date_str,))
     conn.commit()
     conn.close()
+
+def is_shift_alerted(date_str, shift_type='open'):
+    """Check if a shift has already been alerted."""
+    conn = sqlite3.connect(get_db_path())
+    c = conn.cursor()
+    c.execute("SELECT alerted FROM shifts WHERE date = ? AND shift_type = ?", (date_str, shift_type))
+    row = c.fetchone()
+    conn.close()
+    return row is not None and row[0] == 1
 def get_availability_for_month(year, month):
     conn = sqlite3.connect(get_db_path())
     c = conn.cursor()

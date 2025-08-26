@@ -694,7 +694,7 @@ class MainApp(ttk.Frame):
         """
         from automation import scan_four_months_with_automation
         from ocr_processing import extract_shifts_from_image
-        from database import shift_exists, add_shift, get_availability_for_date
+        from database import shift_exists, add_shift, get_availability_for_date, is_shift_alerted
         # get_shift_count import removed (function does not exist)
         import os
         import glob
@@ -776,7 +776,11 @@ class MainApp(ttk.Frame):
                         # Existing open shift - check if user is now available (for changed availability)
                         availability = get_availability_for_date(date_str)
                         is_already_booked_in_db = shift_exists(date_str, 'booked')
-                        if availability and availability.get('is_available') and not is_already_booked_in_db:
+                        
+                        # Check if this shift has already been alerted
+                        is_already_alerted = is_shift_alerted(date_str, 'open')
+                        
+                        if availability and availability.get('is_available') and not is_already_booked_in_db and not is_already_alerted:
                             if date_str not in matched_dates_set:
                                 matched_dates.append(date_str)
                                 matched_dates_set.add(date_str)
