@@ -335,7 +335,32 @@ def scan_four_months_with_automation(ocr_func, year, month):
             ocr_month, ocr_year = extract_month_year_from_image(screenshot_path)
             if ocr_month and ocr_year:
                 if ocr_month != scan_month or ocr_year != scan_year:
-                    _automation_log(f"[WARNING] Expected {calendar.month_name[scan_month]} {scan_year} but OCR found {calendar.month_name[ocr_month]} {ocr_year}. Using OCR result.")
+                    warning_msg = f"[WARNING] Expected {calendar.month_name[scan_month]} {scan_year} but OCR found {calendar.month_name[ocr_month]} {ocr_year}. Using OCR result."
+                    _automation_log(warning_msg)
+                    
+                    # Send warning email about navigation failure
+                    try:
+                        from email_alert import send_email_alert
+                        subject = "Teams Shift Scanner: Month Navigation Warning"
+                        body = f"""Teams Shift Scanner detected a navigation issue:
+
+Expected to be on: {calendar.month_name[scan_month]} {scan_year}
+Actually found: {calendar.month_name[ocr_month]} {ocr_year}
+
+This usually indicates:
+- Teams may have logged you out
+- Navigation between months failed
+- App may need refreshing
+
+Please check Teams is still logged in and working properly.
+
+Time: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"""
+                        
+                        send_email_alert(subject, body, "russfray74@gmail.com")
+                        _automation_log("[EMAIL] Navigation warning email sent")
+                    except Exception as e:
+                        _automation_log(f"[EMAIL] Failed to send navigation warning email: {e}")
+                
                 scan_month, scan_year = ocr_month, ocr_year
             else:
                 _automation_log("[WARNING] Could not OCR month/year from screenshot. Using expected values.")
