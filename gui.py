@@ -767,8 +767,12 @@ class MainApp(ttk.Frame):
                         availability = get_availability_for_date(date_str)
                         # booked check here is for a *different* type of booking, not the one we just found
                         # if it was booked by this scan, it would be shift_type == 'booked'
-                        is_already_booked_in_db = shift_exists(date_str, 'booked') 
-                        if availability and availability.get('is_available') and not is_already_booked_in_db:
+                        is_already_booked_in_db = shift_exists(date_str, 'booked')
+                        
+                        # Additional safety check: ensure this shift hasn't been alerted before
+                        is_already_alerted = is_shift_alerted(date_str, 'open')
+                        
+                        if availability and availability.get('is_available') and not is_already_booked_in_db and not is_already_alerted:
                             if date_str not in matched_dates_set: # matched_dates_set is for availability matches
                                 matched_dates.append(date_str)
                                 matched_dates_set.add(date_str)

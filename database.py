@@ -54,13 +54,15 @@ def add_shift(date_str, shift_type='open', count=1):
     
     conn = sqlite3.connect(get_db_path())
     c = conn.cursor()
-    # Upsert: always set count to the new value
+    # Upsert: always set count to the new value, but preserve alerted status
     c.execute("SELECT count FROM shifts WHERE date = ? AND shift_type = ?", (date_str, shift_type))
     row = c.fetchone()
     now_str = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     if row:
-        c.execute("UPDATE shifts SET count = ?, alerted = 0 WHERE date = ? AND shift_type = ?", (count, date_str, shift_type))
+        # Update existing shift but preserve the alerted status
+        c.execute("UPDATE shifts SET count = ? WHERE date = ? AND shift_type = ?", (count, date_str, shift_type))
     else:
+        # Insert new shift with alerted = 0
         c.execute("INSERT INTO shifts(date, shift_type, count, created_at) VALUES (?, ?, ?, ?)", (date_str, shift_type, count, now_str))
     conn.commit()
     conn.close()
