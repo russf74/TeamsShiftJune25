@@ -562,7 +562,15 @@ class MainApp(ttk.Frame):
         from email.utils import formataddr
         import os
         import time
-        self.scan_status_var.set("Sending test email and WhatsApp focus...")
+        
+        # Check if WhatsApp is enabled for status message
+        from config import load_config
+        config = load_config()
+        if config.get('whatsapp_enabled', True):
+            self.scan_status_var.set("Sending test email and WhatsApp focus...")
+        else:
+            self.scan_status_var.set("Sending test email (WhatsApp disabled)...")
+            
         self.update_idletasks()
         email_success = False
         whatsapp_focus_success = False
@@ -599,40 +607,71 @@ class MainApp(ttk.Frame):
             traceback.print_exc()
 
         # WhatsApp focus and type test (do not send)
-        try:
-            import pyautogui
-            import pywinauto
-            from pywinauto.application import Application
-            # Try to focus WhatsApp window
-            app = None
+        # Check if WhatsApp is enabled in config
+        from config import load_config
+        config = load_config()
+        if config.get('whatsapp_enabled', True):  # Default to True for backward compatibility
             try:
-                app = Application(backend="uia").connect(title_re=".*WhatsApp.*", timeout=3)
-            except Exception:
-                # Try to start WhatsApp if not running
+                import pyautogui
+                import pywinauto
+                from pywinauto.application import Application
+                # Try to focus WhatsApp window
+                app = None
                 try:
-                    app = Application(backend="uia").start("WhatsApp.exe")
-                    time.sleep(2)
-                    app = Application(backend="uia").connect(title_re=".*WhatsApp.*", timeout=5)
-                except Exception as e:
-                    print(f"[WhatsApp] Could not start or connect: {e}")
-            if app:
-                win = app.top_window()
-                win.set_focus()
-                time.sleep(0.5)
-                pyautogui.typewrite("test", interval=0.05)
-                whatsapp_focus_success = True
+                    app = Application(backend="uia").connect(title_re=".*WhatsApp.*", timeout=3)
+                except Exception:
+                    # Try to start WhatsApp if not running
+                    try:
+                        app = Application(backend="uia").start("WhatsApp.exe")
+                        time.sleep(2)
+                        app = Application(backend="uia").connect(title_re=".*WhatsApp.*", timeout=5)
+                    except Exception as e:
+                        print(f"[WhatsApp] Could not start or connect: {e}")
+                if app:
+                    win = app.top_window()
+                    win.set_focus()
+                    time.sleep(0.5)
+                    pyautogui.typewrite("test", interval=0.05)
+                    whatsapp_focus_success = True
+                else:
+                    print("[WhatsApp] WhatsApp window not found.")
+            except Exception as e:
+                print(f"[WhatsApp] Error focusing and typing: {e}")
+        else:
+            print("[WhatsApp] WhatsApp testing disabled in config - skipping WhatsApp test")
+            whatsapp_focus_success = True  # Mark as success so email-only mode works
+
+        # SMS test
+        sms_success = False
+        try:
+            from sms_alert import sms_alert
+            sms_success = sms_alert.test_sms()
+            if sms_success:
+                print("[SMS] Test SMS sent successfully")
             else:
-                print("[WhatsApp] WhatsApp window not found.")
+                print("[SMS] SMS test failed or disabled")
         except Exception as e:
-            print(f"[WhatsApp] Error focusing and typing: {e}")
+            print(f"[SMS] Error testing SMS: {e}")
 
         # Status update
-        if email_success and whatsapp_focus_success:
-            self.scan_status_var.set("Test email sent to russfray74@gmail.com and WhatsApp focus/type succeeded.")
-        elif email_success:
-            self.scan_status_var.set("Test email sent to russfray74@gmail.com, but WhatsApp focus/type failed.")
-        elif whatsapp_focus_success:
-            self.scan_status_var.set("WhatsApp focus/type succeeded, but test email failed.")
+        if config.get('whatsapp_enabled', True):
+            if email_success and whatsapp_focus_success and sms_success:
+                self.scan_status_var.set("Test email, WhatsApp, and SMS all succeeded.")
+            elif email_success and whatsapp_focus_success:
+                self.scan_status_var.set("Test email sent to russfray74@gmail.com and WhatsApp focus/type succeeded.")
+            elif email_success:
+                self.scan_status_var.set("Test email sent to russfray74@gmail.com, but WhatsApp focus/type failed.")
+            elif whatsapp_focus_success:
+                self.scan_status_var.set("WhatsApp focus/type succeeded, but test email failed.")
+        else:
+            if email_success and sms_success:
+                self.scan_status_var.set("Test email and SMS sent successfully (WhatsApp disabled).")
+            elif email_success:
+                self.scan_status_var.set("Test email sent to russfray74@gmail.com (WhatsApp disabled, SMS failed/disabled).")
+            elif sms_success:
+                self.scan_status_var.set("Test SMS sent successfully (WhatsApp disabled, email failed).")
+            else:
+                self.scan_status_var.set("Test email and SMS failed (WhatsApp disabled in config).")
         # If both failed, the error message is already set above.
             
     def ensure_calendar_visible(self):
@@ -900,13 +939,30 @@ class MainApp(ttk.Frame):
                 import traceback
                 traceback.print_exc()
             # --- WhatsApp automation: send message after emailing ---
+            # Check if WhatsApp is enabled in config
+            from config import load_config
+            config = load_config()
+            if config.get('whatsapp_enabled', True):  # Default to True for backward compatibility
+                try:
+                    from automation import send_whatsapp_message
+                    # You can change the group name here if needed
+                    group_name = "Manor Shift Alerts"
+                    send_whatsapp_message(group_name, matched_dates)
+                except Exception as e:
+                    print(f"[WhatsApp] Error sending WhatsApp message: {e}")
+            else:
+                print("[WhatsApp] WhatsApp messaging disabled in config - skipping WhatsApp alert")
+            
+            # --- SMS automation: send text message after emailing ---
             try:
-                from automation import send_whatsapp_message
-                # You can change the group name here if needed
-                group_name = "Manor Shift Alerts"
-                send_whatsapp_message(group_name, matched_dates)
+                from sms_alert import sms_alert
+                sms_success = sms_alert.send_shift_alert_sms(matched_dates)
+                if sms_success:
+                    print(f"[SMS] Text message sent for {len(matched_dates)} new shifts")
+                else:
+                    print("[SMS] Text message failed or disabled")
             except Exception as e:
-                print(f"[WhatsApp] Error sending WhatsApp message: {e}")
+                print(f"[SMS] Error sending SMS: {e}")
 
         try:
             set_status("Running full Teams automation scan (4 months)...")

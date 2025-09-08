@@ -3,6 +3,7 @@
   "gmail_user": "russfray74@gmail.com",
   "gmail_app_password": "qavx bfvv pspz ucpf",
   "alert_email": "russfray74@gmail.com",
-  "scan_interval_seconds": 120,
-  "window_geometry": "800x700+64+64"
+  "scan_interval_seconds": 60,
+  "window_geometry": "800x700+64+64",
+  "whatsapp_enabled": false
 }

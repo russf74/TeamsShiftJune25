@@ -27,6 +27,7 @@ email.db
 
 # Configuration files that may contain sensitive data
 smtp_settings.json
+sms_config.json
 
 # Backup files
 *.bak

@@ -3,6 +3,32 @@ from config import load_config
 from datetime import datetime, timedelta
 from email_db import mark_email_sent, check_email_sent, get_last_email_sent_time
 
+def check_whatsapp_quick():
+    """Quick WhatsApp connectivity check for daily summary."""
+    import psutil
+    import pywinauto
+    
+    try:
+        # Check if WhatsApp is running
+        whatsapp_running = False
+        for proc in psutil.process_iter(['pid', 'name']):
+            if 'whatsapp' in proc.info['name'].lower():
+                whatsapp_running = True
+                break
+        
+        if not whatsapp_running:
+            return {'status': 'WARN', 'message': 'WhatsApp not running'}
+        
+        # Try to connect to WhatsApp window
+        app = pywinauto.Application().connect(title_re=".*WhatsApp.*")
+        if not app.windows():
+            return {'status': 'WARN', 'message': 'WhatsApp window not accessible'}
+            
+        return {'status': 'OK', 'message': 'WhatsApp ready'}
+        
+    except Exception as e:
+        return {'status': 'ERROR', 'message': f'WhatsApp check failed: {str(e)[:50]}...'}
+
 def send_email_alert(subject, body, to_email):
     config = load_config()
     user = config.get('gmail_user')
@@ -152,6 +178,22 @@ def send_summary_email(stats=None):
         body.append("</ul>")
     else:
         body.append("<p>No future shifts found.</p>")
+    
+    # --- Communication Status Check ---
+    body.append("<h3>Communication Status</h3>")
+    
+    # Check if WhatsApp is enabled in config
+    from config import load_config
+    config = load_config()
+    if config.get('whatsapp_enabled', True):
+        whatsapp_status = check_whatsapp_quick()
+        if whatsapp_status['status'] == 'OK':
+            body.append("<p>✅ WhatsApp: Ready for alerts</p>")
+        else:
+            body.append(f"<p>❌ WhatsApp: <b>{whatsapp_status['message']}</b></p>")
+    else:
+        body.append("<p>🔇 WhatsApp: Disabled in configuration</p>")
+    
     body.append("<p>This is an automated daily summary from your Teams Shift Database and Alert application.</p>")
     import yagmail
     try:
