@@ -145,7 +145,20 @@ def send_summary_email(stats=None):
         dt = datetime.strptime(date_str, "%Y-%m-%d")
         return dt.strftime("%a %d %b")
     shift_lines = []
+    booked_dates = set()  # Track dates you're already booked
+    
+    # First pass: collect all booked dates
     for date_str, shift_type, count, created_at in shifts:
+        if shift_type == 'booked':
+            booked_dates.add(date_str)
+    
+    # Second pass: generate lines, skipping open shifts for booked dates
+    for date_str, shift_type, count, created_at in shifts:
+        # SAFETY CHECK: Never show open shifts for dates you're already booked
+        if shift_type == 'open' and date_str in booked_dates:
+            print(f"[EMAIL] Skipping open shift for {date_str} - already booked")
+            continue
+            
         tag = ""
         count_str = f"(Open : {count})" if shift_type == 'open' else f"(Booked : {count})"
         is_new = False

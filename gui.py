@@ -763,8 +763,9 @@ class MainApp(ttk.Frame):
         self._first_scan_year = None
         self._first_scan_month = None
 
-        # Track all found open shifts per (year, month)
+        # Track all found shifts per (year, month)
         found_open_shifts_by_month = {}
+        found_booked_shifts_by_month = {}
 
         def ocr_and_store(image_path, year, month):
             # (Screenshot cleanup is now handled at the start of manual_scan, not here)
@@ -778,6 +779,8 @@ class MainApp(ttk.Frame):
             new_open_shifts_this_month = 0
             new_booked_shifts_this_month = 0
             processed_dates_this_month = set()
+            open_dates_this_month = set()     # Track open shifts found in current scan
+            booked_dates_this_month = set()   # Track booked shifts found in current scan
             for date_str, shift_info in all_shifts_map.items():
                 shift_type = shift_info['type'] # 'open' or 'booked'
                 shift_count = shift_info.get('count', 1)  # Get the count from OCR detection
@@ -794,6 +797,7 @@ class MainApp(ttk.Frame):
                 processed_dates_this_month.add(date_str)
 
                 if shift_type == 'open':
+                    open_dates_this_month.add(date_str)  # Track open shifts found in this scan
                     if not shift_exists(date_str, 'open'):
                         # Check if it's already booked, if so, don't add as open
                         if shift_exists(date_str, 'booked'):
@@ -828,6 +832,7 @@ class MainApp(ttk.Frame):
                                 matched_dates.append(date_str)
                                 matched_dates_set.add(date_str)
                 elif shift_type == 'booked':
+                    booked_dates_this_month.add(date_str)  # Track booked shifts found in this scan
                     # If an open shift for this date was previously added in this scan session from a different screenshot,
                     # we might need to remove it or update its type.
                     # For now, just add as booked if not already booked.
@@ -860,10 +865,9 @@ class MainApp(ttk.Frame):
             self.scan_status_var.set(status_msg.strip())
             
             # Track open shifts for this month for later cleanup (this might need adjustment)
-            # found_open_shifts_by_month[(year, month)] = open_dates_this_month # This was for open shifts only
-            # We need to decide how to handle cleanup if a date is now booked.
-            # For now, let's keep track of all processed dates for potential cleanup logic later.
-            found_open_shifts_by_month[(year, month)] = processed_dates_this_month # Store all processed dates for this month
+            # Store both open and booked shifts found during current scan for cleanup
+            found_open_shifts_by_month[(year, month)] = open_dates_this_month
+            found_booked_shifts_by_month[(year, month)] = booked_dates_this_month
 
             # Use the top-level import for pydatetime (do not re-import locally)
             self.current_date = pydatetime.datetime(year, month, 1)
@@ -976,10 +980,14 @@ class MainApp(ttk.Frame):
 
             self._scanning = False
 
-            # --- Remove obsolete open shifts from DB for each scanned month ---
+            # --- Remove obsolete shifts from DB for each scanned month ---
             from database import delete_shifts_not_in_list
             for (year, month), valid_dates in found_open_shifts_by_month.items():
                 delete_shifts_not_in_list(year, month, valid_dates, shift_type='open')
+            
+            # --- Remove obsolete booked shifts from DB for each scanned month ---
+            for (year, month), valid_dates in found_booked_shifts_by_month.items():
+                delete_shifts_not_in_list(year, month, valid_dates, shift_type='booked')
 
             current_datetime = pydatetime.datetime.now()
             self.current_date = pydatetime.datetime(current_datetime.year, current_datetime.month, 1)

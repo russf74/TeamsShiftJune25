@@ -54,6 +54,20 @@ def add_shift(date_str, shift_type='open', count=1):
     
     conn = sqlite3.connect(get_db_path())
     c = conn.cursor()
+    
+    # CRITICAL FIX: Prevent conflicting shift types on same date
+    if shift_type == 'booked':
+        # If adding a booked shift, remove any existing open shifts for this date
+        c.execute("DELETE FROM shifts WHERE date = ? AND shift_type = 'open'", (date_str,))
+        print(f"[DATABASE] Removed any open shifts for {date_str} (now booked)")
+    elif shift_type == 'open':
+        # If adding an open shift, check if date is already booked
+        c.execute("SELECT 1 FROM shifts WHERE date = ? AND shift_type = 'booked'", (date_str,))
+        if c.fetchone():
+            print(f"[DATABASE] Skipping open shift for {date_str} - already booked")
+            conn.close()
+            return  # Don't add open shift for dates you're already booked
+    
     # Upsert: always set count to the new value, but preserve alerted status
     c.execute("SELECT count FROM shifts WHERE date = ? AND shift_type = ?", (date_str, shift_type))
     row = c.fetchone()

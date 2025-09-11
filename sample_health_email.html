@@ -1,0 +1,89 @@
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; }
+.header { background-color: #f4f4f4; padding: 15px; border-radius: 5px; margin-bottom: 20px; }
+.status-healthy { color: #28a745; font-weight: bold; }
+.status-warning { color: #ffc107; font-weight: bold; }
+.status-critical { color: #dc3545; font-weight: bold; }
+.section { margin-bottom: 25px; }
+.section-title { font-size: 18px; font-weight: bold; color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 5px; margin-bottom: 15px; }
+.test-result { background-color: #f8f9fa; padding: 10px; border-left: 4px solid #28a745; margin-bottom: 10px; }
+.test-fail { border-left-color: #dc3545; }
+.metric { display: inline-block; margin-right: 20px; }
+.recommendation { background-color: #e3f2fd; padding: 15px; border-radius: 5px; }
+table { width: 100%; border-collapse: collapse; margin-bottom: 15px; }
+th, td { padding: 8px; text-align: left; border-bottom: 1px solid #ddd; }
+th { background-color: #f2f2f2; }
+</style>
+</head>
+<body>
+
+<div class="header">
+<h2>Teams Shift Application - Weekly Health Report</h2>
+<p><strong>Status:</strong> <span class="status-healthy">[PASS] HEALTHY</span><br>
+<strong>Generated:</strong> Tuesday, September 02, 2025 at 04:17 PM<br>
+<strong>Success Rate:</strong> 100.0%</p>
+</div>
+
+<div class="section">
+<div class="section-title">Executive Summary</div>
+<table>
+<tr><th>Metric</th><th>Value</th></tr>
+<tr><td>Tests Completed</td><td>6</td></tr>
+<tr><td>Tests Failed</td><td>0</td></tr>
+<tr><td>Execution Time</td><td>0.52 seconds</td></tr>
+<tr><td>System Status</td><td>HEALTHY</td></tr>
+</table>
+<p>This automated health check verifies your Teams Shift monitoring system is operating correctly and can be trusted for hands-free operation.</p>
+</div>
+
+<div class="section">
+<div class="section-title">Issues & Warnings</div>
+<p style="color: #28a745;"><strong>STATUS:</strong> No warnings or errors detected.</p>
+</div>
+
+<div class="section">
+<div class="section-title">Test Results</div>
+<div class="test-result"><strong>Database Health</strong> <span style="color: #666;">(0.00s)</span><br><ul style="margin: 10px 0; padding-left: 20px;"><li>Integrity: ok</li><li>Total Shifts: 18</li><li>Total Availability: 57</li><li>Recent Shifts 7Days: 5</li><li>Alert Distribution: {0: 17, 1: 1}</li><li>File Size Mb: 0.04</li></ul></div>
+<div class="test-result"><strong>Filesystem Health</strong> <span style="color: #666;">(0.00s)</span><br><ul style="margin: 10px 0; padding-left: 20px;"><li>Missing Files: []</li><li>File Sizes: {'main.py': 2436, 'gui.py': 59640, 'database.py': 7316, 'automation.py': 16595, 'config.json': 237, 'smtp_settings.json': 333, 'shifts.db': 36864}</li><li>Missing Templates: []</li><li>Screenshot Count: 40</li><li>Screenshot Size Mb: 10.49</li><li>Disk Free Gb: 47.76</li><li>Disk Used Percent: 51.9</li></ul></div>
+<div class="test-result"><strong>Process Health</strong> <span style="color: #666;">(0.23s)</span><br><ul style="margin: 10px 0; padding-left: 20px;"><li>Python Processes Running: 0</li><li>Process Check Successful: True</li></ul></div>
+<div class="test-result"><strong>Configuration Health</strong> <span style="color: #666;">(0.00s)</span><br><ul style="margin: 10px 0; padding-left: 20px;"><li>Config Json: {'exists': True, 'valid_json': True, 'scan_interval': 60, 'keys_present': ['scan_interval_minutes', 'gmail_user', 'gmail_app_password', 'alert_email', 'scan_interval_seconds', 'window_geometry']}</li><li>Smtp Settings: {'exists': True, 'valid_json': True, 'missing_required_keys': [], 'has_password': True, 'smtp_host': 'smtp.gmail.com'}</li></ul></div>
+<div class="test-result"><strong>Template Health</strong> <span style="color: #666;">(0.22s)</span><br><ul style="margin: 10px 0; padding-left: 20px;"><li>Calendar.Png: {'exists': True, 'readable': True, 'dimensions': '49x44', 'file_size': 1142}</li><li>Dots.Png: {'exists': True, 'readable': True, 'dimensions': '42x37', 'file_size': 230}</li><li>Shifts.Png: {'exists': True, 'readable': True, 'dimensions': '38x30', 'file_size': 569}</li><li>Shiftloaded.Png: {'exists': True, 'readable': True, 'dimensions': '123x85', 'file_size': 2191}</li></ul></div>
+<div class="test-result"><strong>Network Health</strong> <span style="color: #666;">(0.06s)</span><br><ul style="margin: 10px 0; padding-left: 20px;"><li>Internet: True</li><li>Smtp Server: True</li></ul></div>
+</div>
+
+<div class="section">
+<div class="section-title">Performance Analysis</div>
+
+<table>
+<tr><th>Metric</th><th>Value</th></tr>
+<tr><td>Total Execution Time</td><td>0.52 seconds</td></tr>
+<tr><td>Average Test Time</td><td>0.09 seconds</td></tr>
+<tr><td>Slowest Test</td><td>Process Health (0.23s)</td></tr></table>
+</div>
+
+<div class="section">
+<div class="section-title">Recommended Actions</div>
+<div class="recommendation">
+
+<p style="color: #28a745;"><strong>STATUS:</strong> No action required. System operating optimally.</p>
+<ul>
+<li>Continue normal automated operation</li>
+<li>System safe for hands-free monitoring</li>
+<li>Next health check: Friday 7:30pm next week</li>
+</ul>
+
+</div>
+</div>
+
+<div class="section">
+<div class="section-title">Report Information</div>
+<p><strong>System:</strong> Teams Shift Health Check v1.0<br>
+<strong>Schedule:</strong> Every Friday at 7:30pm<br>
+<strong>Next Report:</strong> Tuesday, September 09, 2025 at 7:30pm</p>
+</div>
+
+</body>
+</html>
