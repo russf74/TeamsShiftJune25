@@ -5,7 +5,15 @@ def delete_shifts_not_in_list(year, month, valid_dates, shift_type='open'):
     """
     # CRITICAL SAFETY CHECK: Never delete if no valid dates found - could be scanning failure
     if not valid_dates:
-        print(f"[SAFETY] Skipping cleanup for {year}-{month:02d} {shift_type} shifts - no valid dates found (possible scan failure)")
+        # Only show message for current/past months where we'd expect to find shifts
+        from datetime import datetime
+        current_date = datetime.now()
+        scan_date = datetime(year, month, 1)
+        
+        # Only warn for months that are current or in the recent past
+        if scan_date.year == current_date.year and scan_date.month <= current_date.month + 1:
+            print(f"[SAFETY] Skipping cleanup for {year}-{month:02d} {shift_type} shifts - no shifts found")
+        # For future months, this is normal - no message needed
         return
     
     import sqlite3
