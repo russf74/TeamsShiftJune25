@@ -3,6 +3,11 @@ def delete_shifts_not_in_list(year, month, valid_dates, shift_type='open'):
     Delete all shifts of a given type for the specified month/year that are NOT in valid_dates.
     valid_dates: set of date strings (YYYY-MM-DD) to keep.
     """
+    # CRITICAL SAFETY CHECK: Never delete if no valid dates found - could be scanning failure
+    if not valid_dates:
+        print(f"[SAFETY] Skipping cleanup for {year}-{month:02d} {shift_type} shifts - no valid dates found (possible scan failure)")
+        return
+    
     import sqlite3
     conn = sqlite3.connect(get_db_path())
     c = conn.cursor()
@@ -14,10 +19,16 @@ def delete_shifts_not_in_list(year, month, valid_dates, shift_type='open'):
     # Get all shifts for this month/type
     c.execute("SELECT date FROM shifts WHERE date >= ? AND date < ? AND shift_type = ?", (start, end, shift_type))
     rows = c.fetchall()
+    deleted_count = 0
     for row in rows:
         date_str = row[0]
         if date_str not in valid_dates:
             c.execute("DELETE FROM shifts WHERE date = ? AND shift_type = ?", (date_str, shift_type))
+            deleted_count += 1
+    
+    if deleted_count > 0:
+        print(f"[CLEANUP] Removed {deleted_count} stale {shift_type} shifts for {year}-{month:02d}")
+    
     conn.commit()
     conn.close()
 def clear_all_shifts():
