@@ -92,9 +92,9 @@ def detect_open_shifts(proc_image, image, image_path, year, month):
             seen.add(rect_hash)
 
     # --- Step 4: For each unique block, extract date and count ---
-    DATE_HEADER_Y_OFFSET = 180
-    DATE_HEADER_HEIGHT = 25
-    DATE_HEADER_WIDTH = 60
+    DATE_HEADER_Y_OFFSET = 185  # Adjusted offset to properly capture date headers
+    DATE_HEADER_HEIGHT = 35     # Increased height to ensure full capture
+    DATE_HEADER_WIDTH = 35      # Much smaller width to prevent overlap, properly centered
     result = {}
     debug_image_with_dates = image.copy()
     block_to_date_debug = []  # For debug output
@@ -103,6 +103,9 @@ def detect_open_shifts(proc_image, image, image_path, year, month):
     for i, block in enumerate(unique_blocks):
         x, y, w, h = block['rect']
         col_blocks[x].append((i, block))
+    print(f"[OCR DEBUG] Found {len(unique_blocks)} unique blocks grouped into {len(col_blocks)} columns")
+    for x, blocks in col_blocks.items():
+        print(f"[OCR DEBUG] Column at X={x}: {len(blocks)} blocks")
     col_dates = {}
     # First pass: try to OCR date for each column (use topmost block in column)
     for x, blocks in col_blocks.items():
@@ -115,8 +118,16 @@ def detect_open_shifts(proc_image, image, image_path, year, month):
         date_y2 = min(image.shape[0], date_y1 + DATE_HEADER_HEIGHT)
         date_region = image[date_y1:date_y2, date_x1:date_x2]
         date_region_gray = cv2.cvtColor(date_region, cv2.COLOR_BGR2GRAY)
-        day_text = pytesseract.image_to_string(date_region_gray, config='--psm 7 digits').strip()
+        # Draw red rectangle on debug image to show OCR region
+        cv2.rectangle(debug_image_with_dates, (date_x1, date_y1), (date_x2, date_y2), (0, 0, 255), 2)
+        # Save individual OCR region for debugging
+        ocr_debug_path = image_path.replace('.png', f'_ocr_region_X{x}.png')
+        cv2.imwrite(ocr_debug_path, date_region_gray)
+        # Scale up 2x for better OCR accuracy on small text
+        scaled_region = cv2.resize(date_region_gray, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
+        day_text = pytesseract.image_to_string(scaled_region, config='--psm 6 -c tessedit_char_whitelist=0123456789').strip()
         day_text_digits = ''.join(c for c in day_text if c.isdigit())
+        print(f"[OCR DEBUG] Column X={x}: OCR='{day_text}' -> digits='{day_text_digits}'")
         if day_text_digits:
             try:
                 day = int(day_text_digits)
@@ -124,8 +135,13 @@ def detect_open_shifts(proc_image, image, image_path, year, month):
                     date_obj = datetime(year, month, day)
                     key = f'{year}-{month:02d}-{day:02d}'
                     col_dates[x] = (key, day_text)
-            except Exception:
-                pass
+                    print(f"[OCR DEBUG] Column X={x}: SUCCESS -> {key}")
+                else:
+                    print(f"[OCR DEBUG] Column X={x}: INVALID DAY -> {day}")
+            except Exception as e:
+                print(f"[OCR DEBUG] Column X={x}: EXCEPTION -> {e}")
+        else:
+            print(f"[OCR DEBUG] Column X={x}: NO DIGITS FOUND")
     # Only process columns with a valid date
     for x, blocks in col_blocks.items():
         if x in col_dates:

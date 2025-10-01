@@ -120,7 +120,9 @@ def detect_booked_shifts(proc_image, image, image_path, year, month):
         # Draw rectangle on debug image
         cv2.rectangle(booked_date_regions_img, (date_x1, date_y1), (date_x2, date_y2), (0, 0, 255), 2)
         date_region_gray = cv2.cvtColor(date_region, cv2.COLOR_BGR2GRAY)
-        day_text = pytesseract.image_to_string(date_region_gray, config='--psm 7 digits').strip()
+        # Scale up 2x for better OCR accuracy on small text
+        scaled_region = cv2.resize(date_region_gray, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
+        day_text = pytesseract.image_to_string(scaled_region, config='--psm 7 digits').strip()
         day_text = ''.join(c for c in day_text if c.isdigit())
         date_str = ""
         if day_text:
