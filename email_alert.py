@@ -109,7 +109,7 @@ def send_summary_email(stats=None):
         body.append(f"<li>Number of successful scans: <b>{stats.get('scan_count', 0)}</b></li>")
         body.append(f"<li>Number of errors: <b>{stats.get('error_count', 0)}</b></li>")
         body.append(f"<li>Emails sent: <b>{stats.get('emails_sent', 0)}</b></li>")
-        body.append(f"<li>WhatsApp messages sent: <b>{stats.get('whatsapp_sent', 0)}</b></li>")
+        body.append(f"<li>SMS Text messages sent: <b>{stats.get('sms_sent', 0)}</b></li>")
         if stats.get('last_scan_time'):
             try:
                 dt = datetime.strptime(stats['last_scan_time'], '%Y-%m-%d %H:%M:%S')
@@ -171,7 +171,7 @@ def send_summary_email(stats=None):
                 pass
         if shift_type == 'booked':
             tag = f"(Booked : {count})"
-            line = f"<li>{readable_date(date_str)} {tag}"
+            line = f"<li><b style='color:blue'>{readable_date(date_str)} {tag}</b>"
         elif shift_type == 'open':
             if date_str in availability:
                 tag = f"(Matched : {count})"
@@ -192,21 +192,6 @@ def send_summary_email(stats=None):
     else:
         body.append("<p>No future shifts found.</p>")
     
-    # --- Communication Status Check ---
-    body.append("<h3>Communication Status</h3>")
-    
-    # Check if WhatsApp is enabled in config
-    from config import load_config
-    config = load_config()
-    if config.get('whatsapp_enabled', True):
-        whatsapp_status = check_whatsapp_quick()
-        if whatsapp_status['status'] == 'OK':
-            body.append("<p>✅ WhatsApp: Ready for alerts</p>")
-        else:
-            body.append(f"<p>❌ WhatsApp: <b>{whatsapp_status['message']}</b></p>")
-    else:
-        body.append("<p>🔇 WhatsApp: Disabled in configuration</p>")
-    
     body.append("<p>This is an automated daily summary from your Teams Shift Database and Alert application.</p>")
     import yagmail
     try:
@@ -220,3 +205,90 @@ def send_summary_email(stats=None):
         return False
     mark_email_sent()
     return True
+
+def send_shift_confirmation_email(date_str):
+    """
+    Send immediate confirmation email when a shift is booked/confirmed.
+    
+    Args:
+        date_str: Date string in YYYY-MM-DD format of the confirmed shift
+    """
+    import sqlite3
+    from datetime import datetime
+    from config import load_config
+    
+    # CRITICAL SAFETY CHECK: Never send confirmation emails for past dates
+    try:
+        shift_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+        current_date = datetime.now().date()
+        
+        if shift_date < current_date:
+            days_ago = (current_date - shift_date).days
+            print(f"[EMAIL] SAFETY: Refusing to send confirmation email for past date {date_str} (completed {days_ago} days ago)")
+            return
+    except ValueError:
+        print(f"[EMAIL] SAFETY: Invalid date format {date_str}, skipping confirmation email")
+        return
+    
+    config = load_config()
+    user = config.get('gmail_user')
+    app_password = config.get('gmail_app_password')
+    
+    if not user or not app_password:
+        raise Exception("Gmail user or app password not set in config.")
+    
+    # Check if confirmation email already sent for this shift
+    conn = sqlite3.connect(config.get('db_path', 'shifts.db'))
+    c = conn.cursor()
+    c.execute("SELECT confirmed_email_sent FROM shifts WHERE date = ? AND shift_type = 'booked'", (date_str,))
+    result = c.fetchone()
+    
+    if result and result[0] == 1:
+        print(f"[EMAIL] Confirmation email already sent for {date_str}")
+        conn.close()
+        return
+    
+    # Format the date for display
+    try:
+        date_obj = datetime.strptime(date_str, "%Y-%m-%d")
+        formatted_date = date_obj.strftime("%A, %B %d, %Y")  # e.g. "Monday, June 5, 2025"
+        short_date = date_obj.strftime("%a %d %b")  # e.g. "Mon 05 Jun"
+    except ValueError:
+        formatted_date = date_str
+        short_date = date_str
+    
+    # Email recipients
+    recipients = ["russfray74@gmail.com", "laurafray74@gmail.com"]
+    
+    # Build the email
+    subject = f"Shift Confirmed: {short_date}"
+    
+    body = [
+        f"<h2 style='color:blue'>✅ Shift Confirmed</h2>",
+        f"<p>Your shift has been confirmed for:</p>",
+        f"<p><b style='color:blue; font-size:18px'>{formatted_date}</b></p>",
+        f"<p>This confirmation was detected automatically by your Teams Shift monitoring system.</p>",
+        f"<p>No further action is required.</p>",
+        f"<hr>",
+        f"<p><small>This is an automated notification from your Teams Shift Database and Alert application.</small></p>"
+    ]
+    
+    # Send the email
+    import yagmail
+    try:
+        yag = yagmail.SMTP(user=user, password=app_password)
+        yag.send(to=recipients, subject=subject, contents=''.join(body))
+        
+        # Mark confirmation email as sent
+        c.execute("UPDATE shifts SET confirmed_email_sent = 1 WHERE date = ? AND shift_type = 'booked'", (date_str,))
+        conn.commit()
+        
+        print(f"[EMAIL] Shift confirmation email sent for {formatted_date} to {', '.join(recipients)}")
+        
+    except Exception as e:
+        print(f"[ERROR] Failed to send shift confirmation email: {e}")
+        import traceback
+        traceback.print_exc()
+        raise
+    finally:
+        conn.close()

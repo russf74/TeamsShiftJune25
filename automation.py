@@ -176,7 +176,7 @@ def capture_shifts_screen():
         capture_shifts_screen._screenshots_cleared = True
 
     # Give Teams window time to fully maximize and stabilize
-    time.sleep(0.5)
+    time.sleep(2.0)  # Increased wait time to ensure shifts are fully loaded
 
     # Generate a unique filename based on timestamp and scan index if present
     scan_index = getattr(capture_shifts_screen, "_scan_index", None)
@@ -382,11 +382,11 @@ Time: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"""
                 _automation_log("Could not find/click right arrow. Stopping scan early.")
                 break
             # Wait after clicking arrow for Teams to load the next month
-            time.sleep(0.5)
+            time.sleep(1.5)  # Increased delay for month navigation
 
     # Step 4: Return to current month by clicking Today again
     _automation_log("Returning to current month by clicking Today button...")
-    time.sleep(0.2)  # Wait before final Today click
+    time.sleep(1.0)  # Wait before final Today click - increased for stability
     if not find_and_click_template('today.png', confidence=0.9, pause=0.2):
         _automation_log("Could not find/click Today button at end of scan.")
     else:

@@ -182,13 +182,20 @@ class MainApp(ttk.Frame):
         self.pack(fill="both", expand=True)
         self.current_date = pydatetime.datetime.today().replace(day=1)
 
-        # --- Scan Timer Controls ---
+        # --- Create main horizontal layout ---
         from config import load_config, save_config
         self.config = load_config()
 
-        # Place timer_frame and scan_status_label at the top, then calendar below
-        self.timer_frame = ttk.Frame(self)
-        self.timer_frame.pack(fill="x", pady=10, side="top", anchor="n")
+        # Create left panel for controls and right panel for calendar
+        self.left_panel = ttk.Frame(self)
+        self.left_panel.pack(side="left", fill="y", padx=10, pady=10)
+        
+        self.right_panel = ttk.Frame(self)
+        self.right_panel.pack(side="right", fill="both", expand=True, padx=(0, 10), pady=10)
+
+        # --- Scan Timer Controls (now in left panel) ---
+        self.timer_frame = ttk.Frame(self.left_panel)
+        self.timer_frame.pack(fill="x", pady=(0, 10), side="top")
 
         # --- Top row: Scan interval controls ---
         ttk.Label(self.timer_frame, text="Scan Interval (seconds):").grid(row=0, column=0, padx=5, pady=2, sticky="w")
@@ -220,27 +227,41 @@ class MainApp(ttk.Frame):
         self.reset_btn = ttk.Button(self.timer_frame, text="Test Shift App Reset", command=self.trigger_shift_app_reset)
         self.reset_btn.grid(row=1, column=3, padx=5, pady=4, sticky="w")
 
-        # Scan status label always just below timer_frame
+        # Scan status label in left panel below timer controls - fixed height for 2 rows
         self.scan_status_var = tk.StringVar(value="")
-        self.scan_status_label = ttk.Label(self, textvariable=self.scan_status_var, font=("Arial", 10))
-        self.scan_status_label.pack(fill="x", pady=5, side="top", anchor="n")
-        # Header and calendar below controls
-        self.header = ttk.Frame(self)
-        self.header.pack(fill="x", side="top", anchor="n")
-        self.prev_btn = ttk.Button(self.header, text="<", width=3, command=self.prev_month)
-        self.prev_btn.pack(side="left", padx=5, pady=5)
-        self.next_btn = ttk.Button(self.header, text=">", width=3, command=self.next_month)
-        self.next_btn.pack(side="right", padx=5, pady=5)
+        self.scan_status_label = tk.Label(self.left_panel, textvariable=self.scan_status_var, 
+                                        font=("Arial", 9), wraplength=280, 
+                                        width=40, height=2, anchor="nw", justify="left",
+                                        relief="flat")
+        self.scan_status_label.pack(fill="x", pady=5, side="top")
+        
+        # Navigation controls in left panel
+        nav_frame = ttk.Frame(self.left_panel)
+        nav_frame.pack(fill="x", pady=5, side="top")
+        self.prev_btn = ttk.Button(nav_frame, text="< Prev Month", command=self.prev_month)
+        self.prev_btn.pack(fill="x", pady=2)
+        self.current_btn = ttk.Button(nav_frame, text="Move to current month", command=self.move_to_current_month)
+        self.current_btn.pack(fill="x", pady=2)
+        self.next_btn = ttk.Button(nav_frame, text="Next Month >", command=self.next_month)
+        self.next_btn.pack(fill="x", pady=2)
+        
+        # Quit button in left panel
+        self.quit_btn = tk.Button(self.left_panel, text="Quit", command=self.force_quit, bg="red", fg="white", font=("Arial", 10, "bold"))
+        self.quit_btn.pack(fill="x", pady=10, side="top")
+        
+        # Calendar in right panel (no header needed now)
+        self.header = ttk.Frame(self.right_panel)  # Keep this for compatibility
+        self.header.pack_forget()  # But don't display it
 
-        # Initialize calendar frame with error handling
+        # Initialize calendar frame in right panel
         try:
-            self.cal_frame = CalendarView(self, self.current_date.year, self.current_date.month)
-            self.cal_frame.pack(fill="both", expand=True, side="top", anchor="n")
+            self.cal_frame = CalendarView(self.right_panel, self.current_date.year, self.current_date.month)
+            self.cal_frame.pack(fill="both", expand=True, side="top")
         except Exception as e:
             print(f"[GUI] Error initializing calendar: {e}")
             # Create a simple fallback calendar
-            self.cal_frame = ttk.Label(self, text="Calendar loading...")
-            self.cal_frame.pack(fill="both", expand=True, side="top", anchor="n")
+            self.cal_frame = ttk.Label(self.right_panel, text="Calendar loading...")
+            self.cal_frame.pack(fill="both", expand=True, side="top")
             # Try to recreate the calendar after a short delay
             self.after(500, self.ensure_calendar_visible)
 
@@ -250,6 +271,12 @@ class MainApp(ttk.Frame):
     def trigger_shift_app_reset(self):
         import threading
         threading.Thread(target=self.refresh_teams_shifts, daemon=True).start()
+
+    def force_quit(self):
+        """Force quit the application"""
+        print("[INFO] Application is shutting down forcefully.")
+        import os
+        os._exit(0)
 
     def _record_screen_video(self, duration_seconds=300, fps=5, filename="midnight_reset_recording.mp4"):
         """
@@ -683,8 +710,8 @@ class MainApp(ttk.Frame):
             # Check if calendar frame exists and is properly displayed
             if not hasattr(self, 'cal_frame') or self.cal_frame is None:
                 print("[GUI] Calendar frame missing, recreating...")
-                self.cal_frame = CalendarView(self, self.current_date.year, self.current_date.month)
-                self.cal_frame.pack(fill="both", expand=True, side="top", anchor="n")
+                self.cal_frame = CalendarView(self.right_panel, self.current_date.year, self.current_date.month)
+                self.cal_frame.pack(fill="both", expand=True, side="top")
                 self.update()  # Force a complete update of the window
                 return
             
@@ -698,8 +725,8 @@ class MainApp(ttk.Frame):
                     self.update()  # Force a complete update of the window
             except tk.TclError:
                 print("[GUI] Calendar frame was destroyed, recreating...")
-                self.cal_frame = CalendarView(self, self.current_date.year, self.current_date.month)
-                self.cal_frame.pack(fill="both", expand=True, side="top", anchor="n")
+                self.cal_frame = CalendarView(self.right_panel, self.current_date.year, self.current_date.month)
+                self.cal_frame.pack(fill="both", expand=True, side="top")
                 self.update()  # Force a complete update of the window
                 
         except Exception as e:
@@ -709,7 +736,7 @@ class MainApp(ttk.Frame):
                 # Make sure we're using the current month when recreating
                 self.current_date = pydatetime.datetime(self.current_date.year, self.current_date.month, 1)
                 
-                self.cal_frame = CalendarView(self, self.current_date.year, self.current_date.month)
+                self.cal_frame = CalendarView(self.right_panel, self.current_date.year, self.current_date.month)
                 self.cal_frame.pack(fill="both", expand=True)
                 self.update()  # Force a complete update of the window
             except Exception as e2:
@@ -798,59 +825,45 @@ class MainApp(ttk.Frame):
 
                 if shift_type == 'open':
                     open_dates_this_month.add(date_str)  # Track open shifts found in this scan
-                    if not shift_exists(date_str, 'open'):
-                        # Check if it's already booked, if so, don't add as open
-                        if shift_exists(date_str, 'booked'):
-                            print(f"[GUI] Shift on {date_str} is already booked, not adding as open.")
-                            continue
-                        add_shift(date_str, 'open', shift_count)
+                    
+                    # Check if it's already booked, if so, don't add as open
+                    if shift_exists(date_str, 'booked'):
+                        print(f"[GUI] Shift on {date_str} is already booked, not adding as open.")
+                        continue
+                    
+                    # FIXED: Always call add_shift to ensure count is updated even for existing shifts
+                    was_new_shift = not shift_exists(date_str, 'open')
+                    add_shift(date_str, 'open', shift_count)  # This will create new OR update existing count
+                    
+                    if was_new_shift:
                         new_open_shifts_this_month += 1
                         total_new_shifts += 1 # This counts all new shifts (open or booked)
-                        # Availability check for open shifts
-                        availability = get_availability_for_date(date_str)
-                        # booked check here is for a *different* type of booking, not the one we just found
-                        # if it was booked by this scan, it would be shift_type == 'booked'
-                        is_already_booked_in_db = shift_exists(date_str, 'booked')
-                        
-                        # Additional safety check: ensure this shift hasn't been alerted before
-                        is_already_alerted = is_shift_alerted(date_str, 'open')
-                        
-                        if availability and availability.get('is_available') and not is_already_booked_in_db and not is_already_alerted:
-                            if date_str not in matched_dates_set: # matched_dates_set is for availability matches
-                                matched_dates.append(date_str)
-                                matched_dates_set.add(date_str)
-                    else:
-                        # Existing open shift - check if user is now available (for changed availability)
-                        availability = get_availability_for_date(date_str)
-                        is_already_booked_in_db = shift_exists(date_str, 'booked')
-                        
-                        # Check if this shift has already been alerted
-                        is_already_alerted = is_shift_alerted(date_str, 'open')
-                        
-                        if availability and availability.get('is_available') and not is_already_booked_in_db and not is_already_alerted:
-                            if date_str not in matched_dates_set:
-                                matched_dates.append(date_str)
-                                matched_dates_set.add(date_str)
+                    
+                    # Availability check for open shifts (both new and existing)
+                    availability = get_availability_for_date(date_str)
+                    is_already_booked_in_db = shift_exists(date_str, 'booked')
+                    
+                    # Additional safety check: ensure this shift hasn't been alerted before
+                    is_already_alerted = is_shift_alerted(date_str, 'open')
+                    
+                    if availability and availability.get('is_available') and not is_already_booked_in_db and not is_already_alerted:
+                        if date_str not in matched_dates_set: # matched_dates_set is for availability matches
+                            matched_dates.append(date_str)
+                            matched_dates_set.add(date_str)
                 elif shift_type == 'booked':
                     booked_dates_this_month.add(date_str)  # Track booked shifts found in this scan
-                    # If an open shift for this date was previously added in this scan session from a different screenshot,
-                    # we might need to remove it or update its type.
-                    # For now, just add as booked if not already booked.
-                    if not shift_exists(date_str, 'booked'):
-                        add_shift(date_str, 'booked', shift_count)
+                    
+                    # FIXED: Always call add_shift to ensure count is updated even for existing booked shifts
+                    was_new_booking = not shift_exists(date_str, 'booked')
+                    add_shift(date_str, 'booked', shift_count)  # This handles open->booked conversion and count updates
+                    
+                    if was_new_booking:
                         new_booked_shifts_this_month += 1
                         total_new_shifts += 1 # Count new booked shifts
-                        # If it was previously marked as 'open' in the DB from a *prior* scan, update it.
+                        
+                        # If it was previously marked as 'open' in the DB, add_shift already handled the conversion
                         if shift_exists(date_str, 'open'):
-                            print(f"[GUI] Updating shift on {date_str} from open to booked.")
-                            # This might require a specific update_shift_type function in database.py
-                            # For now, we assume add_shift handles conflicts or we add a new one.
-                            # If add_shift overwrites, it's fine. If not, we might have duplicates or need an update function.
-                            # Let's assume add_shift can handle this by either updating or ignoring if same type.
-                            # If it was added as 'open' in *this current scan run* and now found as 'booked',
-                            # the 'open' entry should ideally be removed or updated.
-                            # This logic can get complex depending on how `add_shift` and `shift_exists` are implemented.
-                            pass # Current add_shift will add a new 'booked' entry. 
+                            print(f"[GUI] Converted shift on {date_str} from open to booked.") 
                                  # We might need to remove the 'open' one if it exists from a previous iteration of this scan.
 
             # Update status message
@@ -874,8 +887,8 @@ class MainApp(ttk.Frame):
             try:
                 if hasattr(self, 'cal_frame') and isinstance(self.cal_frame, CalendarView):
                     self.cal_frame.destroy()
-                self.cal_frame = CalendarView(self, year, month)
-                self.cal_frame.pack(fill="both", expand=True, side="top", anchor="n")
+                self.cal_frame = CalendarView(self.right_panel, year, month)
+                self.cal_frame.pack(fill="both", expand=True, side="top")
                 self.update()
             except Exception as e:
                 print(f"[PATCH] Error recreating calendar: {e}")
@@ -980,14 +993,31 @@ class MainApp(ttk.Frame):
 
             self._scanning = False
 
-            # --- Remove obsolete shifts from DB for each scanned month ---
+            # --- Remove obsolete shifts from DB for ALL scanned months (not just ones with found shifts) ---
             from database import delete_shifts_not_in_list
-            for (year, month), valid_dates in found_open_shifts_by_month.items():
-                delete_shifts_not_in_list(year, month, valid_dates, shift_type='open')
+            import datetime as pydatetime
             
-            # --- Remove obsolete booked shifts from DB for each scanned month ---
-            for (year, month), valid_dates in found_booked_shifts_by_month.items():
-                delete_shifts_not_in_list(year, month, valid_dates, shift_type='booked')
+            # Generate list of all months that were scanned (4 months starting from current)
+            scan_start_date = pydatetime.datetime(now.year, now.month, 1)
+            scanned_months = []
+            for i in range(4):
+                scan_year = scan_start_date.year
+                scan_month = scan_start_date.month + i
+                # Handle year rollover
+                while scan_month > 12:
+                    scan_month -= 12
+                    scan_year += 1
+                scanned_months.append((scan_year, scan_month))
+            
+            # Run cleanup for ALL scanned months (whether shifts found or not)  
+            for year, month in scanned_months:
+                # Get the shifts found for this month (empty set if none found)
+                open_shifts_found = found_open_shifts_by_month.get((year, month), set())
+                booked_shifts_found = found_booked_shifts_by_month.get((year, month), set())
+                
+                # Clean up stale shifts for this month
+                delete_shifts_not_in_list(year, month, open_shifts_found, shift_type='open')
+                delete_shifts_not_in_list(year, month, booked_shifts_found, shift_type='booked')
 
             current_datetime = pydatetime.datetime.now()
             self.current_date = pydatetime.datetime(current_datetime.year, current_datetime.month, 1)
@@ -1112,6 +1142,13 @@ class MainApp(ttk.Frame):
         # Ensure calendar is visible after month change
         self.ensure_calendar_visible()
         
+    def move_to_current_month(self):
+        self.current_date = pydatetime.datetime.today().replace(day=1)
+        # Force refresh to show current month
+        self.refresh_calendar(force=True)
+        # Ensure calendar is visible after month change
+        self.ensure_calendar_visible()
+        
     def refresh_calendar(self, force=False):
         """
         Safely refresh the calendar display.
@@ -1128,11 +1165,11 @@ class MainApp(ttk.Frame):
             # If cal_frame exists and is a CalendarView, just update its contents for the new month/year
             if hasattr(self, 'cal_frame') and isinstance(self.cal_frame, CalendarView):                # Always create a new CalendarView for the new month to ensure a clean state
                 self.cal_frame.destroy()
-                self.cal_frame = CalendarView(self, self.current_date.year, self.current_date.month)
-                self.cal_frame.pack(fill="both", expand=True, side="top", anchor="n")
+                self.cal_frame = CalendarView(self.right_panel, self.current_date.year, self.current_date.month)
+                self.cal_frame.pack(fill="both", expand=True, side="top")
                 self.update()  # Force a complete update of the window
                 return            # If cal_frame is missing or not a CalendarView, create it
-            self.cal_frame = CalendarView(self, self.current_date.year, self.current_date.month)
+            self.cal_frame = CalendarView(self.right_panel, self.current_date.year, self.current_date.month)
             self.cal_frame.pack(fill="both", expand=True, side="top")
             self.update()  # Force a complete update of the window
         except Exception as e:
@@ -1141,7 +1178,7 @@ class MainApp(ttk.Frame):
             traceback.print_exc()
             # Try to restore a basic calendar on error
             try:
-                self.cal_frame = CalendarView(self, self.current_date.year, self.current_date.month)
+                self.cal_frame = CalendarView(self.right_panel, self.current_date.year, self.current_date.month)
                 self.cal_frame.pack(fill="both", expand=True)
             except Exception as e2:
                 print(f"[GUI] Failed to restore calendar: {e2}")
@@ -1230,10 +1267,5 @@ def launch_gui(root, config):
         # Use os._exit to force immediate termination without cleanup
         os._exit(0)
 
-    # Create a frame at the top to hold the quit button
-    top_frame = tk.Frame(root)
-    top_frame.pack(side=tk.TOP, fill=tk.X)
-    
-    # Place the quit button in the center of the top frame
-    quit_button = tk.Button(top_frame, text="Quit", command=force_quit, bg="red", fg="white")
-    quit_button.pack(pady=10)
+    # Quit button will be added to the left panel by the MainApp class
+    # (removed from top frame to integrate with left panel layout)

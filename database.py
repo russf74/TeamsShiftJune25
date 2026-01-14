@@ -1,3 +1,6 @@
+import sqlite3
+import os
+
 def delete_shifts_not_in_list(year, month, valid_dates, shift_type='open'):
     """
     Delete all shifts of a given type for the specified month/year that are NOT in valid_dates.
@@ -75,7 +78,13 @@ def add_shift(date_str, shift_type='open', count=1):
     c = conn.cursor()
     
     # CRITICAL FIX: Prevent conflicting shift types on same date
+    is_new_booking = False
     if shift_type == 'booked':
+        # Check if this is a new booking (not already booked)
+        c.execute("SELECT 1 FROM shifts WHERE date = ? AND shift_type = 'booked'", (date_str,))
+        if not c.fetchone():
+            is_new_booking = True
+        
         # If adding a booked shift, remove any existing open shifts for this date
         c.execute("DELETE FROM shifts WHERE date = ? AND shift_type = 'open'", (date_str,))
         print(f"[DATABASE] Removed any open shifts for {date_str} (now booked)")
@@ -87,20 +96,48 @@ def add_shift(date_str, shift_type='open', count=1):
             conn.close()
             return  # Don't add open shift for dates you're already booked
     
-    # Upsert: always set count to the new value, but preserve alerted status
-    c.execute("SELECT count FROM shifts WHERE date = ? AND shift_type = ?", (date_str, shift_type))
+    # Check if this shift already exists
+    c.execute("SELECT count, created_at FROM shifts WHERE date = ? AND shift_type = ?", (date_str, shift_type))
     row = c.fetchone()
     now_str = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    
     if row:
-        # Update existing shift but preserve the alerted status
+        # Update existing shift but preserve created_at and alerted status  
         c.execute("UPDATE shifts SET count = ? WHERE date = ? AND shift_type = ?", (count, date_str, shift_type))
     else:
-        # Insert new shift with alerted = 0
-        c.execute("INSERT INTO shifts(date, shift_type, count, created_at) VALUES (?, ?, ?, ?)", (date_str, shift_type, count, now_str))
+        # New shift - check if we have a record of when this shift was first discovered
+        # This prevents false NEW! alerts from delete/re-add cycles
+        c.execute("SELECT first_seen FROM shift_history WHERE date = ? AND shift_type = ?", (date_str, shift_type))
+        history_row = c.fetchone()
+        
+        if history_row:
+            # Use the original discovery time to prevent false "NEW!" alerts
+            original_created_at = history_row[0]
+            c.execute("INSERT INTO shifts(date, shift_type, count, created_at) VALUES (?, ?, ?, ?)", (date_str, shift_type, count, original_created_at))
+            print(f"[DATABASE] Re-adding {date_str} with original timestamp {original_created_at} (prevents false NEW! alert)")
+        else:
+            # Truly new shift - record first time seeing it
+            c.execute("INSERT INTO shifts(date, shift_type, count, created_at) VALUES (?, ?, ?, ?)", (date_str, shift_type, count, now_str))
+            c.execute("INSERT INTO shift_history(date, shift_type, first_seen) VALUES (?, ?, ?)", (date_str, shift_type, now_str))
+            print(f"[DATABASE] Added new shift {date_str} with timestamp {now_str}")
+    
     conn.commit()
     conn.close()
-import sqlite3
-import os
+    
+    # Send confirmation email for new bookings - BUT ONLY for future dates
+    if is_new_booking and shift_type == 'booked':
+        # CRITICAL: Never send confirmation emails for past dates
+        try:
+            shift_date = datetime.datetime.strptime(date_str, "%Y-%m-%d").date()
+            current_date = datetime.datetime.now().date()
+            
+            if shift_date >= current_date:
+                from email_alert import send_shift_confirmation_email
+                send_shift_confirmation_email(date_str)
+            else:
+                print(f"[DATABASE] Skipping confirmation email for past date: {date_str} (completed {(current_date - shift_date).days} days ago)")
+        except Exception as e:
+            print(f"[DATABASE] Failed to send confirmation email for {date_str}: {e}")
 
 def get_db_path():
     return os.path.join(os.path.dirname(__file__), 'shifts.db')
@@ -124,6 +161,13 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS config (
         key TEXT PRIMARY KEY,
         value TEXT
+    )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS shift_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        date TEXT NOT NULL,
+        shift_type TEXT NOT NULL,
+        first_seen TEXT NOT NULL,
+        UNIQUE(date, shift_type)
     )''')
     conn.commit()
     conn.close()
@@ -204,11 +248,13 @@ def remove_past_shifts():
     conn.close()
 def migrate_shifts_table_add_count_and_created_at():
     """
-    Ensures the 'count' and 'created_at' columns exist in the shifts table. Adds them if missing.
+    Ensures the 'count', 'created_at', 'confirmed_email_sent' columns exist in the shifts table and shift_history table exists.
+    Adds them if missing and populates shift_history with existing data.
     """
     db_path = get_db_path() if 'get_db_path' in globals() else os.path.join(os.path.dirname(__file__), 'shifts.db')
     conn = sqlite3.connect(db_path)
     c = conn.cursor()
+    
     # Check if 'count' column exists
     c.execute("PRAGMA table_info(shifts)")
     columns = [row[1] for row in c.fetchall()]
@@ -220,6 +266,28 @@ def migrate_shifts_table_add_count_and_created_at():
         print("[DB] Migrating: adding 'created_at' column to shifts table...")
         c.execute("ALTER TABLE shifts ADD COLUMN created_at TEXT")
         conn.commit()
+    if "confirmed_email_sent" not in columns:
+        print("[DB] Migrating: adding 'confirmed_email_sent' column to shifts table...")
+        c.execute("ALTER TABLE shifts ADD COLUMN confirmed_email_sent INTEGER DEFAULT 0")
+        conn.commit()
+    
+    # Create shift_history table if it doesn't exist
+    c.execute('''CREATE TABLE IF NOT EXISTS shift_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        date TEXT NOT NULL,
+        shift_type TEXT NOT NULL,
+        first_seen TEXT NOT NULL,
+        UNIQUE(date, shift_type)
+    )''')
+    
+    # Populate shift_history with existing shifts to prevent false NEW! alerts
+    c.execute("SELECT COUNT(*) FROM shift_history")
+    if c.fetchone()[0] == 0:
+        print("[DB] Migrating: populating shift_history with existing shifts...")
+        c.execute("INSERT OR IGNORE INTO shift_history(date, shift_type, first_seen) SELECT date, shift_type, COALESCE(created_at, '2025-01-01 00:00:00') FROM shifts")
+        conn.commit()
+        print("[DB] Migration complete: shift_history populated with existing shifts")
+    
     conn.close()
 
 # Always run migration on import
