@@ -2,6 +2,30 @@ import yagmail
 from config import load_config
 from datetime import datetime, timedelta
 from email_db import mark_email_sent, check_email_sent, get_last_email_sent_time
+import logging
+
+# Configure logging for email operations
+logger = logging.getLogger('email_alert')
+logger.setLevel(logging.INFO)
+
+# Create file handler for persistent logs
+import os
+log_file = os.path.join(os.path.dirname(__file__), 'shift_operations.log')
+file_handler = logging.FileHandler(log_file)
+file_handler.setLevel(logging.INFO)
+
+# Create console handler
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.INFO)
+
+# Create formatter
+formatter = logging.Formatter('[%(asctime)s] [%(levelname)s] [EMAIL] %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+file_handler.setFormatter(formatter)
+console_handler.setFormatter(formatter)
+
+# Add handlers
+logger.addHandler(file_handler)
+logger.addHandler(console_handler)
 
 def check_whatsapp_quick():
     """Quick WhatsApp connectivity check for daily summary."""
@@ -217,6 +241,8 @@ def send_shift_confirmation_email(date_str):
     from datetime import datetime
     from config import load_config
     
+    logger.info(f"send_shift_confirmation_email() called for {date_str}")
+    
     # CRITICAL SAFETY CHECK: Never send confirmation emails for past dates
     try:
         shift_date = datetime.strptime(date_str, "%Y-%m-%d").date()
@@ -224,10 +250,10 @@ def send_shift_confirmation_email(date_str):
         
         if shift_date < current_date:
             days_ago = (current_date - shift_date).days
-            print(f"[EMAIL] SAFETY: Refusing to send confirmation email for past date {date_str} (completed {days_ago} days ago)")
+            logger.warning(f"BLOCKED: Refusing to send confirmation email for PAST date {date_str} (completed {days_ago} days ago)")
             return
     except ValueError:
-        print(f"[EMAIL] SAFETY: Invalid date format {date_str}, skipping confirmation email")
+        logger.error(f"BLOCKED: Invalid date format {date_str}, skipping confirmation email")
         return
     
     config = load_config()
@@ -235,6 +261,7 @@ def send_shift_confirmation_email(date_str):
     app_password = config.get('gmail_app_password')
     
     if not user or not app_password:
+        logger.error("Gmail credentials not set in config")
         raise Exception("Gmail user or app password not set in config.")
     
     # Check if confirmation email already sent for this shift
@@ -244,9 +271,11 @@ def send_shift_confirmation_email(date_str):
     result = c.fetchone()
     
     if result and result[0] == 1:
-        print(f"[EMAIL] Confirmation email already sent for {date_str}")
+        logger.warning(f"BLOCKED: Confirmation email already sent for {date_str} (confirmed_email_sent=1)")
         conn.close()
         return
+    
+    logger.info(f"Proceeding to send confirmation email for {date_str} (confirmed_email_sent={result[0] if result else 'NULL'})")
     
     # Format the date for display
     try:
@@ -276,6 +305,7 @@ def send_shift_confirmation_email(date_str):
     # Send the email
     import yagmail
     try:
+        logger.info(f"SENDING email to {', '.join(recipients)} - Subject: '{subject}'")
         yag = yagmail.SMTP(user=user, password=app_password)
         yag.send(to=recipients, subject=subject, contents=''.join(body))
         
@@ -283,10 +313,10 @@ def send_shift_confirmation_email(date_str):
         c.execute("UPDATE shifts SET confirmed_email_sent = 1 WHERE date = ? AND shift_type = 'booked'", (date_str,))
         conn.commit()
         
-        print(f"[EMAIL] Shift confirmation email sent for {formatted_date} to {', '.join(recipients)}")
+        logger.info(f"SUCCESS: Confirmation email sent for {date_str}, flag set to 1")
         
     except Exception as e:
-        print(f"[ERROR] Failed to send shift confirmation email: {e}")
+        logger.error(f"FAILED to send confirmation email for {date_str}: {e}")
         import traceback
         traceback.print_exc()
         raise
