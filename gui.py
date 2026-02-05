@@ -851,7 +851,7 @@ class MainApp(ttk.Frame):
                             matched_dates.append(date_str)
                             matched_dates_set.add(date_str)
                 elif shift_type == 'booked':
-                    booked_dates_this_month.add(date_str)  # Track booked shifts found in current scan
+                    booked_dates_this_month.add(date_str)  # Track booked shifts found in this scan
                     
                     # FIXED: Always call add_shift to ensure count is updated even for existing booked shifts
                     was_new_booking = not shift_exists(date_str, 'booked')
@@ -946,32 +946,32 @@ class MainApp(ttk.Frame):
                 server.login(user, password)
                 server.sendmail(user, list(all_recipients), msg.as_string())
                 server.quit()
-                
-   # Mark all emailed shifts as alerted IN A SINGLE ATOMIC TRANSACTION
-   # This prevents race conditions where a new scan starts while flags are being set
-      from database import mark_multiple_shifts_alerted
-        mark_multiple_shifts_alerted(matched_dates)
- 
-          self.scan_status_var.set(f"Alert email sent for {len(matched_dates)} new matched shifts.")
+                # Mark all emailed shifts as alerted IN A SINGLE ATOMIC TRANSACTION
 
-        except Exception as e:
-            self.scan_status_var.set(f"Alert email failed: {e}")
-            import traceback
-            traceback.print_exc()
-        # --- WhatsApp automation: send message after emailing ---
-        # Check if WhatsApp is enabled in config
-        from config import load_config
-        config = load_config()
-        if config.get('whatsapp_enabled', True):  # Default to True for backward compatibility
-            try:
-                from automation import send_whatsapp_message
-                # You can change the group name here if needed
-                group_name = "Manor Shift Alerts"
-                send_whatsapp_message(group_name, matched_dates)
+                # This prevents race conditions where a new scan starts while flags are being set
+
+                from database import mark_multiple_shifts_alerted
+
+                mark_multiple_shifts_alerted(matched_dates)
+                self.scan_status_var.set(f"Alert email sent for {len(matched_dates)} new matched shifts.")
             except Exception as e:
-                print(f"[WhatsApp] Error sending WhatsApp message: {e}")
-        else:
-            print("[WhatsApp] WhatsApp messaging disabled in config - skipping WhatsApp alert")
+                self.scan_status_var.set(f"Alert email failed: {e}")
+                import traceback
+                traceback.print_exc()
+            # --- WhatsApp automation: send message after emailing ---
+            # Check if WhatsApp is enabled in config
+            from config import load_config
+            config = load_config()
+            if config.get('whatsapp_enabled', True):  # Default to True for backward compatibility
+                try:
+                    from automation import send_whatsapp_message
+                    # You can change the group name here if needed
+                    group_name = "Manor Shift Alerts"
+                    send_whatsapp_message(group_name, matched_dates)
+                except Exception as e:
+                    print(f"[WhatsApp] Error sending WhatsApp message: {e}")
+            else:
+                print("[WhatsApp] WhatsApp messaging disabled in config - skipping WhatsApp alert")
             
             # --- SMS automation: send text message after emailing ---
             try:
