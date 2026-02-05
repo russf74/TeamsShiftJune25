@@ -29,6 +29,9 @@ def delete_shifts_not_in_list(year, month, valid_dates, shift_type='open'):
     """
     Delete all shifts of a given type for the specified month/year that are NOT in valid_dates.
     valid_dates: set of date strings (YYYY-MM-DD) to keep.
+    
+    CRITICAL SAFETY: Never deletes booked shifts with confirmed_email_sent=1 to prevent
+    duplicate confirmation emails from OCR failures causing delete/re-add cycles.
     """
     # CRITICAL SAFETY CHECK: Never delete if no valid dates found - could be scanning failure
     if not valid_dates:
@@ -36,7 +39,7 @@ def delete_shifts_not_in_list(year, month, valid_dates, shift_type='open'):
         from datetime import datetime
         current_date = datetime.now()
         scan_date = datetime(year, month, 1)
-        
+
         # Only warn for months that are current or in the recent past
         if scan_date.year == current_date.year and scan_date.month <= current_date.month + 1:
             logger.warning(f"Skipping cleanup for {year}-{month:02d} {shift_type} shifts - no shifts found in scan")
@@ -51,23 +54,43 @@ def delete_shifts_not_in_list(year, month, valid_dates, shift_type='open'):
         end = f"{year+1}-01-01"
     else:
         end = f"{year}-{month+1:02d}-01"
-    # Get all shifts for this month/type
-    c.execute("SELECT date FROM shifts WHERE date >= ? AND date < ? AND shift_type = ?", (start, end, shift_type))
+    
+    # Get all shifts for this month/type with email status
+    if shift_type == 'booked':
+        c.execute("SELECT date, confirmed_email_sent FROM shifts WHERE date >= ? AND date < ? AND shift_type = ?", (start, end, shift_type))
+    else:
+        c.execute("SELECT date, alerted FROM shifts WHERE date >= ? AND date < ? AND shift_type = ?", (start, end, shift_type))
+    
     rows = c.fetchall()
     deleted_count = 0
+    protected_count = 0
     deleted_dates = []
+    protected_dates = []
+    
     for row in rows:
         date_str = row[0]
+        email_flag = row[1] if len(row) > 1 else 0
+        
         if date_str not in valid_dates:
-            # LOG EVERY DELETION
+            # CRITICAL SAFETY: Never delete booked shifts that have been confirmed via email
+            if shift_type == 'booked' and email_flag == 1:
+                logger.warning(f"PROTECTED: Keeping booked shift {date_str} despite not in scan (confirmation email already sent)")
+                protected_count += 1
+                protected_dates.append(date_str)
+                continue  # Don't delete this shift
+            
+            # Safe to delete
             logger.warning(f"DELETING {shift_type} shift: {date_str} (not found in scan results)")
             c.execute("DELETE FROM shifts WHERE date = ? AND shift_type = ?", (date_str, shift_type))
             deleted_count += 1
             deleted_dates.append(date_str)
  
     if deleted_count > 0:
-      logger.info(f"Cleanup complete: Removed {deleted_count} stale {shift_type} shifts for {year}-{month:02d}: {', '.join(deleted_dates)}")
+        logger.info(f"Cleanup complete: Removed {deleted_count} stale {shift_type} shifts for {year}-{month:02d}: {', '.join(deleted_dates)}")
     
+    if protected_count > 0:
+        logger.info(f"Protected {protected_count} confirmed booked shifts from deletion: {', '.join(protected_dates)}")
+  
     conn.commit()
     conn.close()
 def clear_all_shifts():
@@ -222,12 +245,34 @@ def get_shifts_for_month(year, month):
     return [{"date": row[0], "shift_type": row[1], "count": row[2], "alerted": row[3]} for row in rows]
 
 def mark_shift_alerted(date_str):
+    """Mark a single shift as alerted (legacy function - use mark_multiple_shifts_alerted for batch operations)"""
     conn = sqlite3.connect(get_db_path())
     c = conn.cursor()
     c.execute("UPDATE shifts SET alerted = 1 WHERE date = ? AND shift_type = 'open'", (date_str,))
     conn.commit()
     conn.close()
+    logger.info(f"Marked {date_str} as alerted")
 
+def mark_multiple_shifts_alerted(date_list):
+    """
+    Mark multiple shifts as alerted in a single atomic transaction.
+    This prevents race conditions where a new scan starts while flags are being set.
+    
+    Args:
+date_list: List of date strings (YYYY-MM-DD) to mark as alerted
+    """
+    if not date_list:
+        return
+    
+    conn = sqlite3.connect(get_db_path())
+    c = conn.cursor()
+    
+    for date_str in date_list:
+        c.execute("UPDATE shifts SET alerted = 1 WHERE date = ? AND shift_type = 'open'", (date_str,))
+    
+    conn.commit()  # Single commit for ALL updates - atomic operation
+    conn.close()
+    logger.info(f"Atomically marked {len(date_list)} shifts as alerted: {', '.join(date_list)}")
 def is_shift_alerted(date_str, shift_type='open'):
     """Check if a shift has already been alerted."""
     conn = sqlite3.connect(get_db_path())
