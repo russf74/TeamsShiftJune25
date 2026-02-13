@@ -9,6 +9,7 @@ from tkinter import messagebox
 from database import init_db
 from gui import launch_gui
 from config import load_config
+from version import __version__, print_version
 import os
 import sys
 import subprocess
@@ -19,16 +20,19 @@ from datetime import datetime
 def setup_logging():
     # Configure root logger to show INFO level logs
     logging.basicConfig(
-        level=logging.INFO,
-        format='[%(levelname)s] %(message)s'
-    )
+     level=logging.INFO,
+     format='[%(levelname)s] %(message)s'
+  )
     # Add timestamp formatter for all loggers
     for handler in logging.root.handlers:
         handler.setFormatter(logging.Formatter('[%(levelname)s] %(message)s'))
     
+    # Print version banner
+    print_version()
+    
     # Log startup message with timestamp
     now = datetime.now().strftime("[%d/%m %H:%M:%S]")
-    print(f"{now} Teams Shift App starting...")
+    print(f"{now} Teams Shift App v{__version__} starting...")
 
 def kill_other_instances():
     import psutil
