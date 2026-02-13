@@ -151,16 +151,19 @@ def add_shift(date_str, shift_type='open', count=1):
             conn.close()
             return  # Don't add open shift for dates you're already booked
     
-    # Check if this shift already exists
-    c.execute("SELECT count, created_at, confirmed_email_sent FROM shifts WHERE date = ? AND shift_type = ?", (date_str, shift_type))
+    # Check if this shift already exists - FETCH alerted flag too!
+    c.execute("SELECT count, created_at, confirmed_email_sent, alerted FROM shifts WHERE date = ? AND shift_type = ?", (date_str, shift_type))
     row = c.fetchone()
     now_str = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     
     if row:
-        # Update existing shift but preserve created_at and alerted status
+        # CRITICAL FIX: Preserve BOTH created_at AND alerted flag during UPDATE
         old_count = row[0]
-        logger.info(f"UPDATING existing {shift_type} shift: {date_str}, count {old_count}->{count}, created_at={row[1]}, email_sent={row[2]}")
+        old_alerted = row[3] if len(row) > 3 else 0  # Get existing alerted flag
+        logger.info(f"UPDATING existing {shift_type} shift: {date_str}, count {old_count}->{count}, created_at={row[1]}, email_sent={row[2]}, alerted={old_alerted}")
+        # Only update count, preserve everything else by not touching other columns
         c.execute("UPDATE shifts SET count = ? WHERE date = ? AND shift_type = ?", (count, date_str, shift_type))
+        # The alerted flag is preserved because we don't update it
     else:
         # New shift - check if we have a record of when this shift was first discovered
         # This prevents false NEW! alerts from delete/re-add cycles
