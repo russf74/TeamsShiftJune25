@@ -70,6 +70,40 @@ def send_availability_alert(matched_dates_with_counts):
         matched_dates_with_counts: List of tuples (date_str, count) where open shifts match availability
     """
     
+    # CRITICAL SAFETY CHECK: Double-check that none of these shifts have already been alerted
+    from database import is_shift_alerted
+    
+    filtered_dates = []
+    skipped_dates = []
+    
+    for item in matched_dates_with_counts:
+        # Handle both tuple and string formats
+        if isinstance(item, tuple):
+            date_str, count = item
+        else:
+            date_str = item
+            count = 1
+        
+        # Double-check the alerted flag before sending
+        if is_shift_alerted(date_str, 'open'):
+            logger.warning(f"BLOCKED: Skipping alert for {date_str} - already alerted (alerted=1)")
+            skipped_dates.append(date_str)
+        else:
+            filtered_dates.append((date_str, count))
+    
+    if skipped_dates:
+        logger.info(f"Skipped {len(skipped_dates)} already-alerted shifts: {skipped_dates}")
+    
+    if not filtered_dates:
+        logger.info("No unalerted shifts to send - all were already alerted")
+        return
+    
+    # Update the variable to use filtered list
+    matched_dates_with_counts = filtered_dates
+    
+    # Log the alert attempt
+    logger.info(f"SENDING availability alert for {len(matched_dates_with_counts)} shifts: {[d[0] for d in matched_dates_with_counts]}")
+    
     if not matched_dates_with_counts:
         return
         
@@ -106,7 +140,9 @@ def send_availability_alert(matched_dates_with_counts):
     ])
     
     # Send the email
+    logger.info(f"About to send email alert to {to_email} for shifts: {[d[0] for d in matched_dates_with_counts]}")
     send_email_alert(subject, "\n".join(body), to_email)
+    logger.info(f"SUCCESS: Email alert sent for {len(matched_dates_with_counts)} shifts")
 
 def send_summary_email(stats=None):
     from config import load_config

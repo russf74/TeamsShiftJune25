@@ -458,28 +458,49 @@ class MainApp(ttk.Frame):
                     continue
 
                 # Success!
-                self.scan_status_var.set("Teams Shifts app refreshed successfully. Resuming scanning.")
+                self.scan_status_var.set("Teams Shifts app refreshed successfully. Will resume scanning at 5am.")
                 
                 # Send success confirmation email
                 try:
                     send_email_alert(
                         "Teams Shifts app reset successful",
-                        "Teams Shifts app was successfully refreshed at midnight. All systems are running normally.",
+                        "Teams Shifts app was successfully refreshed at midnight. Scanning will resume at 5:00 AM.",
                         "russfray74@gmail.com"
                     )
                     print(f"[Reset] Success confirmation email sent")
                 except Exception as e:
                     print(f"[Reset] Failed to send success email: {e}")
                 
-                self.timer_running = True
-                self.scanning_on = True
-                self._scanning = False
-                self.start_countdown()
+                # CRITICAL FIX: Don't resume scanning immediately after midnight reset
+                # Instead, schedule resumption at 5am to avoid nighttime duplicate alerts
+                import datetime as dt
+                now = dt.datetime.now()
+                
+                # Calculate time until 5am
+                next_5am = now.replace(hour=5, minute=0, second=0, microsecond=0)
+                if now.hour >= 5:
+                    # If it's already past 5am today, schedule for 5am tomorrow
+                    next_5am += dt.timedelta(days=1)
+    
+                delay_seconds = int((next_5am - now).total_seconds())
+                
+                print(f"[Reset] Scheduling scan resumption at 5:00 AM (in {delay_seconds} seconds)")
+                self.scan_status_var.set(f"Midnight reset complete. Resuming at 5:00 AM.")
+  
+                # Schedule the countdown to start at 5am
+                def resume_at_5am():
+                    print(f"[Reset] Resuming scanning at 5:00 AM")
+                    self.timer_running = True
+                    self.scanning_on = True
+                    self._scanning = False
+                    self.start_countdown()
+     
+                self.after(delay_seconds * 1000, resume_at_5am)  # Convert to milliseconds
                 return
             except Exception as e:
                 import traceback
-                self.scan_status_var.set(f"[Reset] Error: {e}. Retrying...")
                 traceback.print_exc()
+                self.scan_status_var.set(f"[Reset] Error: {e}. Retrying...")
                 time.sleep(2)
         # If we reach here, all attempts failed
         self.scan_status_var.set("Teams refresh failed after 10 attempts. Emailing admin.")
@@ -851,7 +872,7 @@ class MainApp(ttk.Frame):
                             matched_dates.append(date_str)
                             matched_dates_set.add(date_str)
                 elif shift_type == 'booked':
-                    booked_dates_this_month.add(date_str)  # Track booked shifts found in this scan
+                    booked_dates_this_month.add(date_str)  # Track booked shifts found in current scan
                     
                     # FIXED: Always call add_shift to ensure count is updated even for existing booked shifts
                     was_new_booking = not shift_exists(date_str, 'booked')
@@ -1034,7 +1055,10 @@ class MainApp(ttk.Frame):
             if matched_dates:
                 summary = f"New matched shifts found: {len(matched_dates)}\n" + ", ".join(matched_dates)
                 self.scan_status_var.set(summary)
+                # CRITICAL: Log this alert attempt for debugging
+                print(f"[ALERT] Attempting to send availability alert for {len(matched_dates)} shifts: {matched_dates}")
                 send_availability_alert(matched_dates)
+                print(f"[ALERT] Availability alert sent successfully for {matched_dates}")
             else:
                 self.scan_status_var.set(f"Last scan run: {scan_time} : {total_new_shifts} new shifts found. No new matched shifts.")
             # Log scan for summary
