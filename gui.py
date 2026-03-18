@@ -442,7 +442,7 @@ class MainApp(ttk.Frame):
                 loaded = False
                 for _ in range(10):
                     try:
-                        loaded_img = pyautogui.locateOnScreen('shiftloaded.png', confidence=0.8)
+                        loaded_img = pyautogui.locateOnScreen('shiftloaded.png', confidence=0.7)
                         if loaded_img:
                             loaded = True
                             break
