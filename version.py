@@ -65,12 +65,12 @@ def get_version():
     return __version__
 
 def get_version_info():
-  """Return detailed version information"""
+    """Return detailed version information"""
     return {
         'version': __version__,
         'date': __version_date__,
         'changelog': CHANGELOG
-}
+    }
 
 def print_version():
     """Print version banner"""
