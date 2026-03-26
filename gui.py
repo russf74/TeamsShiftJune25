@@ -389,7 +389,7 @@ class MainApp(ttk.Frame):
                     else:
                         self.scan_status_var.set(f"[Reset] Found calendar button at {cal_btn}")
                         pyautogui.click(cal_btn)
-                        time.sleep(10)
+                        time.sleep(15)  # INCREASED from 10 to 15 seconds
                 except pyautogui.ImageNotFoundException:
                     self.scan_status_var.set("[Reset] Calendar button not found. Assuming already selected, proceeding...")
                 except Exception as e:
@@ -407,7 +407,7 @@ class MainApp(ttk.Frame):
                         continue
                     self.scan_status_var.set(f"[Reset] Found dots button at {dots_btn}")
                     pyautogui.click(dots_btn)
-                    time.sleep(2)
+                    time.sleep(5)  # INCREASED from 2 to 5 seconds
                 except pyautogui.ImageNotFoundException:
                     self.scan_status_var.set("[Reset] Dots button not found. Retrying...")
                     time.sleep(2)
@@ -428,7 +428,7 @@ class MainApp(ttk.Frame):
                         continue
                     self.scan_status_var.set(f"[Reset] Found shifts button at {shifts_btn}")
                     pyautogui.click(shifts_btn)
-                    time.sleep(10)
+                    time.sleep(15)  # INCREASED from 10 to 15 seconds
                 except pyautogui.ImageNotFoundException:
                     self.scan_status_var.set("[Reset] Shifts button not found (ImageNotFoundException). Retrying...")
                     time.sleep(2)
@@ -440,7 +440,7 @@ class MainApp(ttk.Frame):
 
                 # Step 4: Wait for Shifts loaded
                 loaded = False
-                for _ in range(10):
+                for _ in range(20):  # INCREASED from 10 to 20 attempts  # INCREASED from 10 to 20 attempts
                     try:
                         loaded_img = pyautogui.locateOnScreen('shiftloaded.png', confidence=0.7)
                         if loaded_img:
@@ -1296,3 +1296,5 @@ def launch_gui(root, config):
 
     # Quit button will be added to the left panel by the MainApp class
     # (removed from top frame to integrate with left panel layout)
+
+

@@ -3,21 +3,40 @@ Teams Shift Monitor Application
 Version tracking and changelog
 """
 
-__version__ = "1.1.1"
+__version__ = "1.1.2"
 __version_date__ = "2025-01-27"
 
 # Changelog
 CHANGELOG = """
+Version 1.1.2 (2025-01-27) - MIDNIGHT RESET TIMING IMPROVEMENTS
+================================================================
+?? IMPROVEMENTS: Midnight Reset Stability & Reliability
+   - Problem: Calendar full-screen mode caused reset to fail
+   - Observation: Shifts button sometimes stays in main view instead of ... menu
+   - Solution: Increased all timing delays for better stability
+   
+?? Timing Improvements:
+   - Dots menu delay: 2s ? 5s (allows menu to fully open)
+   - Shifts view load: 10s ? 15s (allows full transition from calendar)
+   - Detection loop: 10 ? 20 attempts (max wait 20 seconds for loading)
+   - Total max wait per attempt: ~32s ? ~50s (much more reliable)
+
+?? Rationale:
+   - No rush for midnight reset - reliability more important than speed
+   - Longer delays ensure Teams UI has time to respond
+   - Prevents false failures when UI is slower than expected
+   - Files: gui.py refresh_teams_shifts() method
+
 Version 1.1.1 (2025-01-27) - MIDNIGHT RESET DETECTION FIX
 ==========================================================
 ?? FIX: Midnight Reset Detection Failing
    - Problem: shiftloaded.png matching at 0.75 but code checking at 0.8
    - Impact: Midnight reset appeared to fail even though Teams refreshed successfully
- - Solution: Lowered detection confidence threshold from 0.8 to 0.7
+   - Solution: Lowered detection confidence threshold from 0.8 to 0.7
    - Evidence: Diagnostic tool confirmed image matches at 0.7 reliably
    - File: gui.py line ~580 in refresh_teams_shifts()
  
-?? Diagnostic Tools Added:
+??? Diagnostic Tools Added:
    - diagnose_shiftloaded.py: Tests detection at multiple confidence levels
    - test_midnight_fix.py: Quick verification of the fix
    - MIDNIGHT_RESET_DETECTION_ISSUE.md: Complete technical analysis
