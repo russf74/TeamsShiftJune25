@@ -434,64 +434,40 @@ class MainApp(ttk.Frame):
                 # Step 1: Find Shifts icon - navigate away then back to force a refresh.
                 # If already on Shifts (blue), click Calendar first to leave, then come back.
                 _base_dir = os.path.dirname(os.path.abspath(__file__))
+                away_icon_path = os.path.join(_base_dir, 'away_icon.png')
                 shifts_unselected_path = os.path.join(_base_dir, 'shifts_unselected.png')
                 shifts_selected_path = os.path.join(_base_dir, 'shifts_selected.png')
-                away_icon_path = os.path.join(_base_dir, 'away_icon.png')
+                from automation import find_and_click_template
 
-                # Step 1: ALWAYS click away_icon first to leave Shifts
+                # Step 1: ALWAYS click away icon first
                 self.scan_status_var.set("[Reset] Step 1: Clicking away icon...")
-                away_btn = None
-                try:
-                    away_btn = pyautogui.locateCenterOnScreen(away_icon_path, confidence=0.8)
-                except pyautogui.ImageNotFoundException:
-                    pass
-                if away_btn:
-                    print(f"[Reset] away_icon at x={away_btn.x} y={away_btn.y}")
-                    self._show_click_marker(away_btn.x, away_btn.y)
-                    time.sleep(0.5)
-                    self._raw_click(away_btn.x, away_btn.y)
-                    time.sleep(15)
-                else:
+                result = find_and_click_template(away_icon_path, confidence=0.8, pause=0.5)
+                if not result:
                     self.scan_status_var.set("[Reset] Away icon not found. Retrying...")
                     time.sleep(2)
                     continue
+                print(f"[Reset] Away icon clicked at {result}")
+                time.sleep(15)
 
-                # Step 2: Click Shifts icon to reload
+                # Step 2: Click Shifts icon (try unselected first, then selected)
                 self.scan_status_var.set("[Reset] Step 2: Clicking Shifts icon...")
-                shifts_btn = None
-                try:
-                    shifts_btn = pyautogui.locateCenterOnScreen(shifts_unselected_path, confidence=0.8)
-                except pyautogui.ImageNotFoundException:
-                    pass
-                if not shifts_btn:
-                    try:
-                        shifts_btn = pyautogui.locateCenterOnScreen(shifts_selected_path, confidence=0.8)
-                    except pyautogui.ImageNotFoundException:
-                        pass
-                if shifts_btn:
-                    print(f"[Reset] shifts icon at x={shifts_btn.x} y={shifts_btn.y}")
-                    self._show_click_marker(shifts_btn.x, shifts_btn.y)
-                    time.sleep(0.5)
-                    self._raw_click(shifts_btn.x, shifts_btn.y)
-                    time.sleep(15)
-                else:
+                result = find_and_click_template(shifts_unselected_path, confidence=0.8, pause=0.5)
+                if not result:
+                    result = find_and_click_template(shifts_selected_path, confidence=0.8, pause=0.5)
+                if not result:
                     self.scan_status_var.set("[Reset] Shifts icon not found. Retrying...")
                     time.sleep(2)
                     continue
+                print(f"[Reset] Shifts icon clicked at {result}")
+                time.sleep(15)
 
-                # Step 4: Wait for Shifts loaded
+                # Step 3: Wait for Shifts loaded
                 loaded = False
-                for _ in range(20):  # INCREASED from 10 to 20 attempts  # INCREASED from 10 to 20 attempts
-                    try:
-                        loaded_img = pyautogui.locateOnScreen(os.path.join(_base_dir, 'shiftloaded.png'), confidence=0.7)
-                        if loaded_img:
-                            loaded = True
-                            break
-                    except pyautogui.ImageNotFoundException:
-                        # Image not found, continue waiting
-                        pass
-                    except Exception as e:
-                        print(f"[Reset] Error checking for shifts loaded: {e}")
+                shiftloaded_path = os.path.join(_base_dir, 'shiftloaded.png')
+                for _ in range(20):
+                    if find_and_click_template(shiftloaded_path, confidence=0.7, pause=0):
+                        loaded = True
+                        break
                     time.sleep(1)
                 if not loaded:
                     self.scan_status_var.set("[Reset] Shifts did not finish loading. Retrying...")
