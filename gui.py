@@ -351,9 +351,60 @@ class MainApp(ttk.Frame):
                 out.release()
             print(f"[Recording] Screen recording completed: {filename}")
 
+    def _raw_click(self, x, y):
+        """Click at exact screen coordinates using ctypes SendInput (works on modern Windows)."""
+        import ctypes
+        import ctypes.wintypes
+
+        x, y = int(x), int(y)
+        ctypes.windll.user32.SetCursorPos(x, y)
+        print(f"[RawClick] SetCursorPos({x},{y})")
+
+        # Use SendInput for reliable clicking on modern Windows
+        PUL = ctypes.POINTER(ctypes.c_ulong)
+        class MouseInput(ctypes.Structure):
+            _fields_ = [("dx", ctypes.c_long), ("dy", ctypes.c_long),
+                        ("mouseData", ctypes.c_ulong), ("dwFlags", ctypes.c_ulong),
+                        ("time", ctypes.c_ulong), ("dwExtraInfo", PUL)]
+        class Input_I(ctypes.Union):
+            _fields_ = [("mi", MouseInput)]
+        class Input(ctypes.Structure):
+            _fields_ = [("type", ctypes.c_ulong), ("ii", Input_I)]
+
+        def click_event(flags):
+            extra = ctypes.c_ulong(0)
+            ii = Input_I()
+            ii.mi = MouseInput(0, 0, 0, flags, 0, ctypes.pointer(extra))
+            inp = Input(0, ii)  # type 0 = INPUT_MOUSE
+            ctypes.windll.user32.SendInput(1, ctypes.pointer(inp), ctypes.sizeof(inp))
+
+        click_event(0x0002)  # MOUSEEVENTF_LEFTDOWN
+        import time; time.sleep(0.05)
+        click_event(0x0004)  # MOUSEEVENTF_LEFTUP
+        print(f"[RawClick] SendInput click fired at ({x},{y})")
+
+    def _show_click_marker(self, x, y, duration_ms=2000):
+        """Show a red dot at (x,y) - must be called via self.after() to run on main thread."""
+        def _draw():
+            try:
+                size = 30
+                dot = tk.Toplevel(self.master)
+                dot.overrideredirect(True)
+                dot.wm_attributes('-topmost', True)
+                dot.wm_attributes('-transparentcolor', 'white')
+                dot.geometry(f"{size}x{size}+{int(x) - size//2}+{int(y) - size//2}")
+                c = tk.Canvas(dot, width=size, height=size, bg='white', highlightthickness=0)
+                c.pack()
+                c.create_oval(2, 2, size-2, size-2, fill='red', outline='darkred', width=3)
+                dot.after(duration_ms, dot.destroy)
+            except Exception as e:
+                print(f"[Marker] {e}")
+        self.after(0, _draw)
+
     def refresh_teams_shifts(self):
         import pyautogui
         import time
+        import os
         import threading
         from datetime import datetime
         from email_alert import send_email_alert
@@ -380,61 +431,51 @@ class MainApp(ttk.Frame):
         for attempt in range(1, max_attempts + 1):
             try:
                 self.scan_status_var.set(f"[Reset] Attempt {attempt} of {max_attempts}...")
-                # Step 1: Click Calendar (skip if not found - already selected)
+                # Step 1: Find Shifts icon - navigate away then back to force a refresh.
+                # If already on Shifts (blue), click Calendar first to leave, then come back.
+                _base_dir = os.path.dirname(os.path.abspath(__file__))
+                shifts_unselected_path = os.path.join(_base_dir, 'shifts_unselected.png')
+                shifts_selected_path = os.path.join(_base_dir, 'shifts_selected.png')
+                away_icon_path = os.path.join(_base_dir, 'away_icon.png')
+
+                # Step 1: ALWAYS click away_icon first to leave Shifts
+                self.scan_status_var.set("[Reset] Step 1: Clicking away icon...")
+                away_btn = None
                 try:
-                    self.scan_status_var.set("[Reset] Looking for calendar.png...")
-                    cal_btn = pyautogui.locateCenterOnScreen('calendar.png', confidence=0.8)
-                    if not cal_btn:
-                        self.scan_status_var.set("[Reset] Calendar button not found. Assuming already selected, proceeding...")
-                    else:
-                        self.scan_status_var.set(f"[Reset] Found calendar button at {cal_btn}")
-                        pyautogui.click(cal_btn)
-                        time.sleep(15)  # INCREASED from 10 to 15 seconds
+                    away_btn = pyautogui.locateCenterOnScreen(away_icon_path, confidence=0.8)
                 except pyautogui.ImageNotFoundException:
-                    self.scan_status_var.set("[Reset] Calendar button not found. Assuming already selected, proceeding...")
-                except Exception as e:
-                    self.scan_status_var.set(f"[Reset] Error clicking calendar: {e}. Retrying...")
+                    pass
+                if away_btn:
+                    print(f"[Reset] away_icon at x={away_btn.x} y={away_btn.y}")
+                    self._show_click_marker(away_btn.x, away_btn.y)
+                    time.sleep(0.5)
+                    self._raw_click(away_btn.x, away_btn.y)
+                    time.sleep(15)
+                else:
+                    self.scan_status_var.set("[Reset] Away icon not found. Retrying...")
                     time.sleep(2)
                     continue
 
-                # Step 2: Click Dots (...)
+                # Step 2: Click Shifts icon to reload
+                self.scan_status_var.set("[Reset] Step 2: Clicking Shifts icon...")
+                shifts_btn = None
                 try:
-                    self.scan_status_var.set("[Reset] Looking for dots.png...")
-                    dots_btn = pyautogui.locateCenterOnScreen('dots.png', confidence=0.8)
-                    if not dots_btn:
-                        self.scan_status_var.set("[Reset] Dots button not found. Retrying...")
-                        time.sleep(2)
-                        continue
-                    self.scan_status_var.set(f"[Reset] Found dots button at {dots_btn}")
-                    pyautogui.click(dots_btn)
-                    time.sleep(5)  # INCREASED from 2 to 5 seconds
+                    shifts_btn = pyautogui.locateCenterOnScreen(shifts_unselected_path, confidence=0.8)
                 except pyautogui.ImageNotFoundException:
-                    self.scan_status_var.set("[Reset] Dots button not found. Retrying...")
-                    time.sleep(2)
-                    continue
-                except Exception as e:
-                    self.scan_status_var.set(f"[Reset] Error clicking dots: {e}. Retrying...")
-                    time.sleep(2)
-                    continue
-
-                # Step 3: Click Shifts
-                try:
-                    self.scan_status_var.set("[Reset] Looking for shifts.png...")
-                    # Use the same simple approach as other buttons
-                    shifts_btn = pyautogui.locateCenterOnScreen('shifts.png', confidence=0.9)
-                    if not shifts_btn:
-                        self.scan_status_var.set("[Reset] Shifts button not found. Retrying...")
-                        time.sleep(2)
-                        continue
-                    self.scan_status_var.set(f"[Reset] Found shifts button at {shifts_btn}")
-                    pyautogui.click(shifts_btn)
-                    time.sleep(15)  # INCREASED from 10 to 15 seconds
-                except pyautogui.ImageNotFoundException:
-                    self.scan_status_var.set("[Reset] Shifts button not found (ImageNotFoundException). Retrying...")
-                    time.sleep(2)
-                    continue
-                except Exception as e:
-                    self.scan_status_var.set(f"[Reset] Error clicking shifts: {e}. Retrying...")
+                    pass
+                if not shifts_btn:
+                    try:
+                        shifts_btn = pyautogui.locateCenterOnScreen(shifts_selected_path, confidence=0.8)
+                    except pyautogui.ImageNotFoundException:
+                        pass
+                if shifts_btn:
+                    print(f"[Reset] shifts icon at x={shifts_btn.x} y={shifts_btn.y}")
+                    self._show_click_marker(shifts_btn.x, shifts_btn.y)
+                    time.sleep(0.5)
+                    self._raw_click(shifts_btn.x, shifts_btn.y)
+                    time.sleep(15)
+                else:
+                    self.scan_status_var.set("[Reset] Shifts icon not found. Retrying...")
                     time.sleep(2)
                     continue
 
@@ -442,7 +483,7 @@ class MainApp(ttk.Frame):
                 loaded = False
                 for _ in range(20):  # INCREASED from 10 to 20 attempts  # INCREASED from 10 to 20 attempts
                     try:
-                        loaded_img = pyautogui.locateOnScreen('shiftloaded.png', confidence=0.7)
+                        loaded_img = pyautogui.locateOnScreen(os.path.join(_base_dir, 'shiftloaded.png'), confidence=0.7)
                         if loaded_img:
                             loaded = True
                             break
@@ -771,13 +812,31 @@ class MainApp(ttk.Frame):
         
     def manual_scan(self, silent=False):
         """
-        Performs a full automation scan for open shifts in Teams (4 months)
-        1. Runs the full UI automation workflow
-        2. Detects open shifts for each month and adds them to the database
-        3. Shows results and refreshes the calendar
-        4. If new open shifts are found and you are available (not already booked),
-           show them on screen and send a single email with all new matched shifts.
+        Performs a full automation scan for open shifts in Teams (4 months).
+        Runs the heavy work in a background thread to keep the GUI responsive.
         If silent=True, suppresses any popups/dialogs (for auto-scan).
+        """
+        if getattr(self, '_scan_thread_running', False):
+            self.scan_status_var.set("Scan already in progress...")
+            return
+
+        import threading
+        self._scan_thread_running = True
+        t = threading.Thread(target=self._manual_scan_worker, args=(silent,), daemon=True)
+        t.start()
+
+    def _manual_scan_worker(self, silent=False):
+        """
+        Background-thread worker for manual_scan. All GUI updates go via self.after().
+        """
+        try:
+            self._run_manual_scan(silent=silent)
+        finally:
+            self._scan_thread_running = False
+
+    def _run_manual_scan(self, silent=False):
+        """
+        The actual scan implementation, called from a background thread.
         """
         from automation import scan_four_months_with_automation
         from ocr_processing import extract_shifts_from_image
@@ -789,7 +848,7 @@ class MainApp(ttk.Frame):
         import datetime
 
         # --- Clear screenshots directory at the very start of scan ---
-        screenshot_dir = os.path.join(os.getcwd(), 'screenshots')
+        screenshot_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'screenshots')
         if os.path.exists(screenshot_dir):
             files = glob.glob(os.path.join(screenshot_dir, '*'))
             for f in files:
@@ -799,8 +858,7 @@ class MainApp(ttk.Frame):
                     print(f"[Cleanup] Could not delete {f}: {e}")
 
         def set_status(msg):
-            self.scan_status_var.set(msg)
-            self.update_idletasks()
+            self.after(0, lambda m=msg: self.scan_status_var.set(m))
 
         total_new_shifts = 0
         matched_dates = []  # List of (date_str, shift_type)
@@ -896,7 +954,7 @@ class MainApp(ttk.Frame):
                 status_msg += f"{new_booked_shifts_this_month} new booked shifts. "
             if new_open_shifts_this_month == 0 and new_booked_shifts_this_month == 0:
                 status_msg += "No new shifts found."
-            self.scan_status_var.set(status_msg.strip())
+            self.after(0, lambda s=status_msg.strip(): self.scan_status_var.set(s))
             
             # Track open shifts for this month for later cleanup (this might need adjustment)
             # Store both open and booked shifts found during current scan for cleanup
@@ -904,23 +962,22 @@ class MainApp(ttk.Frame):
             found_booked_shifts_by_month[(year, month)] = booked_dates_this_month
 
             # Use the top-level import for pydatetime (do not re-import locally)
-            self.current_date = pydatetime.datetime(year, month, 1)
-            try:
-                if hasattr(self, 'cal_frame') and isinstance(self.cal_frame, CalendarView):
-                    self.cal_frame.destroy()
-                self.cal_frame = CalendarView(self.right_panel, year, month)
-                self.cal_frame.pack(fill="both", expand=True, side="top")
-                self.update()
-            except Exception as e:
-                print(f"[PATCH] Error recreating calendar: {e}")
-                self.refresh_calendar(force=True)
-            self.ensure_calendar_visible()
-            scan_time = pydatetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            # Remove or update the following line to use the correct variables
-            # self.scan_status_var.set(f"Scanned: {calendar.month_name[month]} {year} at {scan_time} : {new_shifts_this_month} new shifts found.")
-            # Instead, use the status_msg already built above:
-            self.scan_status_var.set(status_msg.strip())
-            self.update_idletasks()
+            _status = status_msg.strip()
+            def _update_calendar_ui(y=year, m=month, s=_status):
+                self.current_date = pydatetime.datetime(y, m, 1)
+                try:
+                    if hasattr(self, 'cal_frame') and isinstance(self.cal_frame, CalendarView):
+                        self.cal_frame.destroy()
+                    self.cal_frame = CalendarView(self.right_panel, y, m)
+                    self.cal_frame.pack(fill="both", expand=True, side="top")
+                    self.update()
+                except Exception as e:
+                    print(f"[PATCH] Error recreating calendar: {e}")
+                    self.refresh_calendar(force=True)
+                self.ensure_calendar_visible()
+                self.scan_status_var.set(s)
+                self.update_idletasks()
+            self.after(0, _update_calendar_ui)
 
         def send_availability_alert(matched_dates):
             if not matched_dates:
@@ -931,7 +988,7 @@ class MainApp(ttk.Frame):
             from email.utils import formataddr
             import os
             try:
-                smtp_path = os.path.join(os.getcwd(), 'smtp_settings.json')
+                smtp_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'smtp_settings.json')
                 with open(smtp_path, 'r') as f:
                     smtp_settings = json.load(f)
                 host = smtp_settings.get('SmtpHost')
@@ -1044,33 +1101,33 @@ class MainApp(ttk.Frame):
                 delete_shifts_not_in_list(year, month, booked_shifts_found, shift_type='booked')
 
             current_datetime = pydatetime.datetime.now()
-            self.current_date = pydatetime.datetime(current_datetime.year, current_datetime.month, 1)
 
-            self.refresh_calendar(force=True)
-            self.ensure_calendar_visible()
-            self.update()
-            set_status("")
-
-            scan_time = pydatetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            if matched_dates:
-                summary = f"New matched shifts found: {len(matched_dates)}\n" + ", ".join(matched_dates)
-                self.scan_status_var.set(summary)
-                # CRITICAL: Log this alert attempt for debugging
-                print(f"[ALERT] Attempting to send availability alert for {len(matched_dates)} shifts: {matched_dates}")
-                send_availability_alert(matched_dates)
-                print(f"[ALERT] Availability alert sent successfully for {matched_dates}")
-            else:
-                self.scan_status_var.set(f"Last scan run: {scan_time} : {total_new_shifts} new shifts found. No new matched shifts.")
-            # Log scan for summary
-            self._log_scan(new_shifts=total_new_shifts, alert_count=len(matched_dates), scan_status=self.scan_status_var.get())
+            def _final_ui_update(md=list(matched_dates), ns=total_new_shifts, cd=current_datetime):
+                self.current_date = pydatetime.datetime(cd.year, cd.month, 1)
+                self.refresh_calendar(force=True)
+                self.ensure_calendar_visible()
+                self.update()
+                self.scan_status_var.set("")
+                scan_time = pydatetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                if md:
+                    summary = f"New matched shifts found: {len(md)}\n" + ", ".join(md)
+                    self.scan_status_var.set(summary)
+                    print(f"[ALERT] Attempting to send availability alert for {len(md)} shifts: {md}")
+                    import threading
+                    threading.Thread(target=send_availability_alert, args=(md,), daemon=True).start()
+                else:
+                    self.scan_status_var.set(f"Last scan run: {scan_time} : {ns} new shifts found. No new matched shifts.")
+                self._log_scan(new_shifts=ns, alert_count=len(md), scan_status=self.scan_status_var.get())
+            self.after(0, _final_ui_update)
 
         except Exception as e:
             self._scanning = False
-            set_status("")
-            self.scan_status_var.set(f"Scan error: {str(e)}")
-            self._log_error(str(e))
-            self.refresh_calendar(force=True)
-            self.ensure_calendar_visible()
+            def _error_ui(err=str(e)):
+                self.scan_status_var.set(f"Scan error: {err}")
+                self._log_error(err)
+                self.refresh_calendar(force=True)
+                self.ensure_calendar_visible()
+            self.after(0, _error_ui)
             import traceback
             traceback.print_exc()
 
@@ -1215,7 +1272,8 @@ def launch_gui(root, config):
     root.title("Teams Shift Database and Alert")
     # Restore window size and position if available
     import sqlite3
-    DB_PATH = "shifts.db"
+    import os as _os
+    DB_PATH = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), 'shifts.db')
     TABLE_SQL = """
     CREATE TABLE IF NOT EXISTS window_geometry (
         id INTEGER PRIMARY KEY,

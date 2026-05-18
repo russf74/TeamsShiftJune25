@@ -167,19 +167,20 @@ def add_shift(date_str, shift_type='open', count=1):
     else:
         # New shift - check if we have a record of when this shift was first discovered
         # This prevents false NEW! alerts from delete/re-add cycles
-        c.execute("SELECT first_seen FROM shift_history WHERE date = ? AND shift_type = ?", (date_str, shift_type))
+        c.execute("SELECT first_seen, last_alerted FROM shift_history WHERE date = ? AND shift_type = ?", (date_str, shift_type))
         history_row = c.fetchone()
         
         if history_row:
-            # Use the original discovery time to prevent false "NEW!" alerts
+            # CRITICAL FIX: Restore BOTH original timestamp AND alerted flag to prevent duplicate alerts
             original_created_at = history_row[0]
-            logger.warning(f"RE-ADDING {shift_type} shift: {date_str} with original timestamp {original_created_at} (was previously deleted!)")
-            c.execute("INSERT INTO shifts(date, shift_type, count, created_at) VALUES (?, ?, ?, ?)", (date_str, shift_type, count, original_created_at))
+            original_alerted = history_row[1] if len(history_row) > 1 else 0
+            logger.warning(f"RE-ADDING {shift_type} shift: {date_str} with original timestamp {original_created_at} and alerted={original_alerted} (was previously deleted!)")
+            c.execute("INSERT INTO shifts(date, shift_type, count, created_at, alerted) VALUES (?, ?, ?, ?, ?)", (date_str, shift_type, count, original_created_at, original_alerted))
         else:
             # Truly new shift - record first time seeing it
             logger.info(f"ADDING NEW {shift_type} shift: {date_str} with timestamp {now_str}")
             c.execute("INSERT INTO shifts(date, shift_type, count, created_at) VALUES (?, ?, ?, ?)", (date_str, shift_type, count, now_str))
-            c.execute("INSERT INTO shift_history(date, shift_type, first_seen) VALUES (?, ?, ?)", (date_str, shift_type, now_str))
+            c.execute("INSERT INTO shift_history(date, shift_type, first_seen, last_alerted) VALUES (?, ?, ?, ?)", (date_str, shift_type, now_str, 0))
     
     conn.commit()
     conn.close()
@@ -228,6 +229,7 @@ def init_db():
         date TEXT NOT NULL,
         shift_type TEXT NOT NULL,
         first_seen TEXT NOT NULL,
+        last_alerted INTEGER DEFAULT 0,
         UNIQUE(date, shift_type)
     )''')
     conn.commit()
@@ -272,6 +274,8 @@ date_list: List of date strings (YYYY-MM-DD) to mark as alerted
     
     for date_str in date_list:
         c.execute("UPDATE shifts SET alerted = 1 WHERE date = ? AND shift_type = 'open'", (date_str,))
+        # CRITICAL FIX: Also update shift_history to preserve flag across delete/re-add cycles
+        c.execute("UPDATE shift_history SET last_alerted = 1 WHERE date = ? AND shift_type = 'open'", (date_str,))
     
     conn.commit()  # Single commit for ALL updates - atomic operation
     conn.close()
@@ -360,18 +364,36 @@ def migrate_shifts_table_add_count_and_created_at():
         date TEXT NOT NULL,
         shift_type TEXT NOT NULL,
         first_seen TEXT NOT NULL,
+        last_alerted INTEGER DEFAULT 0,
         UNIQUE(date, shift_type)
     )''')
+    
+    # Check if last_alerted column exists in shift_history
+    c.execute("PRAGMA table_info(shift_history)")
+    history_columns = [row[1] for row in c.fetchall()]
+    if "last_alerted" not in history_columns:
+        logger.info("[DB] Migrating: adding 'last_alerted' column to shift_history table...")
+        c.execute("ALTER TABLE shift_history ADD COLUMN last_alerted INTEGER DEFAULT 0")
+        # Backfill with current alerted status from shifts table
+        c.execute("""
+   UPDATE shift_history 
+  SET last_alerted = (
+       SELECT alerted FROM shifts 
+           WHERE shifts.date = shift_history.date 
+    AND shifts.shift_type = shift_history.shift_type
+   )
+        """)
+        conn.commit()
+        logger.info("[DB] Migration complete: last_alerted column added and backfilled")
     
     # Populate shift_history with existing shifts to prevent false NEW! alerts
     c.execute("SELECT COUNT(*) FROM shift_history")
     if c.fetchone()[0] == 0:
         logger.info("[DB] Migrating: populating shift_history with existing shifts...")
-        c.execute("INSERT OR IGNORE INTO shift_history(date, shift_type, first_seen) SELECT date, shift_type, COALESCE(created_at, '2025-01-01 00:00:00') FROM shifts")
+        c.execute("INSERT OR IGNORE INTO shift_history(date, shift_type, first_seen, last_alerted) SELECT date, shift_type, COALESCE(created_at, '2025-01-01 00:00:00'), COALESCE(alerted, 0) FROM shifts")
         conn.commit()
         logger.info("[DB] Migration complete: shift_history populated with existing shifts")
     
     conn.close()
 
 # Always run migration on import
-migrate_shifts_table_add_count_and_created_at()

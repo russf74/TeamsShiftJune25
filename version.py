@@ -3,8 +3,8 @@ Teams Shift Monitor Application
 Version tracking and changelog
 """
 
-__version__ = "1.1.2"
-__version_date__ = "2025-01-27"
+__version__ = "1.1.3"
+__version_date__ = "2026-04-08"
 
 # Changelog
 CHANGELOG = """

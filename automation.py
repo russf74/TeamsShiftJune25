@@ -308,6 +308,9 @@ def scan_four_months_with_automation(ocr_func, year, month):
     # Give Teams more time to stabilize after Today click
     time.sleep(0.5)
 
+    # Max seconds to wait for a single screenshot capture before giving up on that month
+    SCREENSHOT_TIMEOUT = 45
+
     # Step 3: Scan current and next 3 months
     for i in range(4):
         scan_year = year
@@ -325,9 +328,30 @@ def scan_four_months_with_automation(ocr_func, year, month):
         # Wait for UI to stabilize before screenshot
         time.sleep(0.3)
 
-        screenshot_path = capture_shifts_screen()
-        # Remove scan index after use to avoid affecting other calls
-        del capture_shifts_screen._scan_index
+        # Run screenshot in a thread with a timeout so a hung Teams can't block forever
+        import threading
+        _result = [None]
+        def _take_screenshot():
+            _result[0] = capture_shifts_screen()
+        _t = threading.Thread(target=_take_screenshot, daemon=True)
+        _t.start()
+        _t.join(timeout=SCREENSHOT_TIMEOUT)
+
+        if hasattr(capture_shifts_screen, "_scan_index"):
+            del capture_shifts_screen._scan_index
+
+        if _t.is_alive():
+            _automation_log(f"[TIMEOUT] Screenshot timed out after {SCREENSHOT_TIMEOUT}s for {calendar.month_name[scan_month]} {scan_year} — skipping month.")
+            if i < 3:
+                # Try to advance to the next month anyway
+                time.sleep(0.2)
+                if not find_and_click_right_arrow():
+                    _automation_log("Could not navigate past stuck month. Stopping scan early.")
+                    break
+                time.sleep(1.5)
+            continue
+
+        screenshot_path = _result[0]
 
         if screenshot_path:
             # OCR the month label from the screenshot to confirm actual month/year
