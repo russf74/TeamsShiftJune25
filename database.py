@@ -7,9 +7,10 @@ from datetime import datetime
 logger = logging.getLogger('database')
 logger.setLevel(logging.INFO)
 
-# Create file handler for persistent logs
+# Create file handler for persistent logs (rotating - max 5MB, keep 2 backups)
 log_file = os.path.join(os.path.dirname(__file__), 'shift_operations.log')
-file_handler = logging.FileHandler(log_file)
+from logging.handlers import RotatingFileHandler
+file_handler = RotatingFileHandler(log_file, maxBytes=5*1024*1024, backupCount=2)
 file_handler.setLevel(logging.INFO)
 
 # Create console handler for real-time monitoring
@@ -131,14 +132,22 @@ def add_shift(date_str, shift_type='open', count=1):
     # CRITICAL FIX: Prevent conflicting shift types on same date
     is_new_booking = False
     if shift_type == 'booked':
-        # Check if this is a new booking (not already booked)
-        c.execute("SELECT confirmed_email_sent FROM shifts WHERE date = ? AND shift_type = 'booked'", (date_str,))
+        # Check if this is a new booking (not already in DB as booked)
+        c.execute("SELECT id, confirmed_email_sent FROM shifts WHERE date = ? AND shift_type = 'booked'", (date_str,))
         existing = c.fetchone()
         if not existing:
-            is_new_booking = True
-            logger.info(f"NEW BOOKING detected: {date_str} (will send confirmation email)")
+            # Not in shifts table - but check shift_history to see if we already sent a confirmation
+            # This prevents duplicate emails when a booked shift is deleted and re-added
+            c.execute("SELECT confirmed_email_sent FROM shift_history WHERE date = ? AND shift_type = 'booked'", (date_str,))
+            history = c.fetchone()
+            already_confirmed = history and history[0] == 1
+            if not already_confirmed:
+                is_new_booking = True
+                logger.info(f"NEW BOOKING detected: {date_str} (will send confirmation email)")
+            else:
+                logger.info(f"RE-ADDED booked shift: {date_str} - confirmation already sent previously, skipping email")
         else:
-            logger.info(f"Existing booked shift: {date_str}, confirmed_email_sent={existing[0]}")
+            logger.info(f"Existing booked shift: {date_str}, confirmed_email_sent={existing[1]}")
    
         # If adding a booked shift, remove any existing open shifts for this date
         c.execute("DELETE FROM shifts WHERE date = ? AND shift_type = 'open'", (date_str,))
@@ -152,16 +161,16 @@ def add_shift(date_str, shift_type='open', count=1):
             return  # Don't add open shift for dates you're already booked
     
     # Check if this shift already exists - FETCH alerted flag too!
-    c.execute("SELECT count, created_at, confirmed_email_sent, alerted FROM shifts WHERE date = ? AND shift_type = ?", (date_str, shift_type))
+    c.execute("SELECT count, created_at, alerted FROM shifts WHERE date = ? AND shift_type = ?", (date_str, shift_type))
     row = c.fetchone()
     now_str = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    
+
     if row:
         # CRITICAL FIX: Preserve BOTH created_at AND alerted flag during UPDATE
         old_count = row[0]
-        old_alerted = row[3] if len(row) > 3 else 0  # Get existing alerted flag
-        logger.info(f"UPDATING existing {shift_type} shift: {date_str}, count {old_count}->{count}, created_at={row[1]}, email_sent={row[2]}, alerted={old_alerted}")
-        # Only update count, preserve everything else by not touching other columns
+        old_alerted = row[2] if len(row) > 2 else 0  # Get existing alerted flag
+        logger.info(f"UPDATING existing {shift_type} shift: {date_str}, count {old_count}->{count}, created_at={row[1]}, alerted={old_alerted}")
+        # Only update count, preserve everything else
         c.execute("UPDATE shifts SET count = ? WHERE date = ? AND shift_type = ?", (count, date_str, shift_type))
         # The alerted flag is preserved because we don't update it
     else:
@@ -189,13 +198,26 @@ def add_shift(date_str, shift_type='open', count=1):
     if is_new_booking and shift_type == 'booked':
         # CRITICAL: Never send confirmation emails for past dates
         try:
-            shift_date = datetime.datetime.strptime(date_str, "%Y-%m-%d").date()
-            current_date = datetime.datetime.now().date()
-            
+            import datetime as _dt
+            shift_date = _dt.datetime.strptime(date_str, "%Y-%m-%d").date()
+            current_date = _dt.datetime.now().date()
             if shift_date >= current_date:
                 logger.info(f"SENDING confirmation email for NEW booking: {date_str}")
-                from email_alert import send_shift_confirmation_email
-                send_shift_confirmation_email(date_str)
+                # Mark as sent in both shifts and shift_history so it survives delete/re-add cycles
+                conn2 = sqlite3.connect(get_db_path())
+                conn2.execute("UPDATE shifts SET confirmed_email_sent = 1 WHERE date = ? AND shift_type = 'booked'", (date_str,))
+                conn2.execute("UPDATE shift_history SET confirmed_email_sent = 1 WHERE date = ? AND shift_type = 'booked'", (date_str,))
+                conn2.commit()
+                conn2.close()
+                # Send in background thread so SMTP never blocks the scan
+                import threading
+                def _send(d=date_str):
+                    try:
+                        from email_alert import send_shift_confirmation_email
+                        send_shift_confirmation_email(d)
+                    except Exception as ex:
+                        logger.error(f"Confirmation email failed for {d}: {ex}")
+                threading.Thread(target=_send, daemon=True).start()
             else:
                 logger.info(f"Skipping confirmation email for past date: {date_str} (completed {(current_date - shift_date).days} days ago)")
         except Exception as e:
@@ -213,9 +235,15 @@ def init_db():
         shift_type TEXT NOT NULL,
         count INTEGER DEFAULT 1,
         alerted INTEGER DEFAULT 0,
+        confirmed_email_sent INTEGER DEFAULT 0,
         details TEXT,
         UNIQUE(date, shift_type)
     )''')
+    # Migration: add confirmed_email_sent if it doesn't exist (for existing DBs)
+    try:
+        c.execute("ALTER TABLE shifts ADD COLUMN confirmed_email_sent INTEGER DEFAULT 0")
+    except Exception:
+        pass  # Column already exists
     c.execute('''CREATE TABLE IF NOT EXISTS availability (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         date TEXT NOT NULL

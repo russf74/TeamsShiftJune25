@@ -94,17 +94,21 @@ def _format_whatsapp_shift_message(shift_dates):
 import logging
 from datetime import datetime
 
-# Configure logging for this module
+# Configure logging for this module only - use a named logger to avoid
+# wiping handlers (like RotatingFileHandler) registered by other modules
 class CustomFormatter(logging.Formatter):
     def format(self, record):
         now = datetime.now().strftime("[%d/%m %H:%M:%S]")
         record.msg = f"{now} {record.msg}"
         return super().format(record)
 
-handler = logging.StreamHandler()
-handler.setFormatter(CustomFormatter("%(message)s"))
-logging.root.handlers = [handler]
-logging.root.setLevel(logging.INFO)  # Changed from WARNING to INFO to show shift detection logs
+_auto_handler = logging.StreamHandler()
+_auto_handler.setFormatter(CustomFormatter("%(message)s"))
+_auto_logger = logging.getLogger('automation')
+if not _auto_logger.handlers:
+    _auto_logger.addHandler(_auto_handler)
+_auto_logger.setLevel(logging.INFO)
+_auto_logger.propagate = False
 
 def focus_teams_window():
     """
@@ -341,7 +345,7 @@ def scan_four_months_with_automation(ocr_func, year, month):
             del capture_shifts_screen._scan_index
 
         if _t.is_alive():
-            _automation_log(f"[TIMEOUT] Screenshot timed out after {SCREENSHOT_TIMEOUT}s for {calendar.month_name[scan_month]} {scan_year} — skipping month.")
+            _automation_log(f"[TIMEOUT] Screenshot timed out after {SCREENSHOT_TIMEOUT}s for {calendar.month_name[scan_month]} {scan_year} ï¿½ skipping month.")
             if i < 3:
                 # Try to advance to the next month anyway
                 time.sleep(0.2)
