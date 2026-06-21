@@ -33,11 +33,14 @@ def detect_booked_shifts(proc_image, image, image_path, year, month):
         logging.info("Booked shifts marker not found with high confidence.")
         return {}
 
-    # Get the y position of the marker
+    # Get the y position of the marker.
+    # The marker (bookedshifts.png) matches the section header, but the actual
+    # shift blocks (booked orange AND unavailable grey U... rows) for all staff
+    # can be many hundreds of pixels below it.  Extend the band all the way to
+    # the bottom of the image so nothing is missed.
     marker_x, marker_y = max_loc
-    band_height = 80
     band_y1 = max(0, marker_y - 10)
-    band_y2 = min(band_y1 + band_height, image.shape[0])
+    band_y2 = image.shape[0]
     band = image[band_y1:band_y2, :, :]
 
     # Save the band for debug/inspection (like open_shift_ocr)
@@ -66,13 +69,13 @@ def detect_booked_shifts(proc_image, image, image_path, year, month):
     # Coloured mask (orange + red + pink) = booked
     mask_coloured = cv2.bitwise_or(mask_orange, mask_red)
     mask_coloured = cv2.bitwise_or(mask_coloured, mask_pink)
-    # Grey mask for Teams 'Unavailable' blocks only.
-    # U... blocks are a distinctly NEUTRAL grey (saturation near zero, medium brightness).
-    # Booked shift blocks (even light blue-grey ones like A...) have noticeably higher
-    # saturation in the blue range and are excluded by the tight saturation ceiling of 30.
-    # We also cap value at 200 to avoid picking up bright white background areas.
-    lower_gray = np.array([0,  0, 100])   # min brightness 100 — not dark shadows
-    upper_gray = np.array([180, 30, 200]) # max saturation 30 — neutral grey only; max V 200
+    # Grey mask for Teams 'Unavailable' blocks.
+    # U... blocks are a DISTINCTLY neutral grey with V≈215, S=0.
+    # A... (Available) blocks are near-white (V=255) or blue-tinted light grey (V=240) — both excluded.
+    # Empty calendar grid cells are also V=240 — excluded.
+    # Ceiling of V=220 cleanly captures V=215 (U...) without false-positives.
+    lower_gray = np.array([0,  0, 100])   # min brightness — not dark shadows
+    upper_gray = np.array([180, 30, 220]) # V<=220: captures U... (215), excludes cells/A... (240+)
     mask_gray = cv2.inRange(hsv_band, lower_gray, upper_gray)
     # Remove coloured pixels from grey mask to avoid overlap
     mask_gray = cv2.bitwise_and(mask_gray, cv2.bitwise_not(mask_coloured))
@@ -84,34 +87,28 @@ def detect_booked_shifts(proc_image, image, image_path, year, month):
     orange_blocks = []
     for cnt in contours:
         x, y, w, h = cv2.boundingRect(cnt)
-        if w > 10 and h > 10:
-            block_top = band_y1 + y
-            cnt_mask = np.zeros(mask_coloured.shape, dtype=np.uint8)
-            cv2.drawContours(cnt_mask, [cnt], -1, 255, cv2.FILLED)
-            coloured_px = cv2.countNonZero(cv2.bitwise_and(mask_coloured, cnt_mask))
-            gray_px = cv2.countNonZero(cv2.bitwise_and(mask_gray, cnt_mask))
-            if coloured_px >= gray_px:
-                block_type = 'booked'
-            else:
-                # Grey block: OCR the block text to confirm it shows 'U...' (Unavailable).
-                # 'A...' (Available) blocks are also grey/blue-grey and must NOT be classified
-                # as unavailable — the letter is the only reliable discriminator.
-                block_text = ''
-                try:
-                    block_region = band[y:y+h, x:x+w]
-                    block_gray_img = cv2.cvtColor(block_region, cv2.COLOR_BGR2GRAY)
-                    scaled_block = cv2.resize(block_gray_img, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
-                    block_text = pytesseract.image_to_string(scaled_block, config='--psm 7').strip()
-                except Exception as ocr_err:
-                    logging.warning(f"[BOOKED OCR] Grey block OCR failed at ({x},{block_top}): {ocr_err}")
-                first_char = block_text[0].upper() if block_text else ''
-                if first_char != 'U':
-                    logging.info(f"[BOOKED OCR] Grey block at ({x},{block_top}) text='{block_text}' - not 'U...', skipping")
-                    continue
-                block_type = 'unavailable'
-            logging.info(f"[BOOKED OCR] Block at ({x},{block_top}) coloured_px={coloured_px} gray_px={gray_px} type={block_type}")
-            block_info = {'rect': (x, block_top, w, h), 'block_type': block_type}
-            orange_blocks.append(block_info)
+        # Basic size guard: shift blocks are never wider than ~150px or shorter than 10px
+        if w < 30 or h < 10 or w > 150:
+            continue
+        block_top = band_y1 + y
+        cnt_mask = np.zeros(mask_coloured.shape, dtype=np.uint8)
+        cv2.drawContours(cnt_mask, [cnt], -1, 255, cv2.FILLED)
+        coloured_px = cv2.countNonZero(cv2.bitwise_and(mask_coloured, cnt_mask))
+        gray_px = cv2.countNonZero(cv2.bitwise_and(mask_gray, cnt_mask))
+        if coloured_px >= gray_px:
+            block_type = 'booked'
+        else:
+            # Grey block: must have solid grey fill (>= 20% of bounding area).
+            # Empty calendar grid cells are caught only by their thin border pixels
+            # (~6% fill) and are rejected here.  Genuine U... blocks fill ~97%.
+            fill_ratio = gray_px / (w * h)
+            if fill_ratio < 0.20:
+                logging.info(f"[BOOKED OCR] Grey border-only contour at ({x},{block_top}) fill={fill_ratio:.2f} - skipping")
+                continue
+            block_type = 'unavailable'
+        logging.info(f"[BOOKED OCR] Block at ({x},{block_top}) coloured_px={coloured_px} gray_px={gray_px} type={block_type}")
+        block_info = {'rect': (x, block_top, w, h), 'block_type': block_type}
+        orange_blocks.append(block_info)
     # Date region extraction and OCR
     # --- Use the same date header Y as open shifts for robust date extraction ---
     # Try to find the open shift marker and use the same DATE_HEADER_Y_OFFSET as open_shift_ocr

@@ -3,11 +3,21 @@ Teams Shift Monitor Application
 Version tracking and changelog
 """
 
-__version__ = "5.0.3"
+__version__ = "5.0.4"
 __version_date__ = "2026-06-21"
 
 # Changelog
 CHANGELOG = """
+Version 5.0.4 (2026-06-21) - FIX: Correct unavailable block detection
+=======================================================================
+🔧 FIX: U... blocks (June 22-26) were never detected - band was only 80px tall
+   - bookedshifts marker at y=410 but U... blocks at y=490 -> band extended to bottom of image
+🔧 FIX: Grey mask V ceiling raised 200->220 (U... blocks have V=215, previously excluded)
+🔧 FIX: Empty calendar grid cells (V=240, fill=6%) rejected via 20% fill-ratio guard
+🔧 FIX: Reverted failed OCR-based U detection (text invisible against grey background)
+   - Classification is now purely colour-based: V=100-220 neutral grey = unavailable
+   - A... blocks are V=255 (white), empty cells V=240 - both correctly excluded
+
 Version 5.0.3 (2026-06-21) - PATCH: Use OCR text to confirm Unavailable blocks
 =================================================================================
 🔧 FIX: Grey blocks misclassified as 'unavailable' when they are actually 'A...' (Available)
