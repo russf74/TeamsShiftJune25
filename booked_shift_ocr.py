@@ -66,9 +66,13 @@ def detect_booked_shifts(proc_image, image, image_path, year, month):
     # Coloured mask (orange + red + pink) = booked
     mask_coloured = cv2.bitwise_or(mask_orange, mask_red)
     mask_coloured = cv2.bitwise_or(mask_coloured, mask_pink)
-    # Grey mask (Teams 'Unavailable' marker — low saturation, mid-high value)
-    lower_gray = np.array([0, 0, 40])
-    upper_gray = np.array([180, 80, 245])
+    # Grey mask for Teams 'Unavailable' blocks only.
+    # U... blocks are a distinctly NEUTRAL grey (saturation near zero, medium brightness).
+    # Booked shift blocks (even light blue-grey ones like A...) have noticeably higher
+    # saturation in the blue range and are excluded by the tight saturation ceiling of 30.
+    # We also cap value at 200 to avoid picking up bright white background areas.
+    lower_gray = np.array([0,  0, 100])   # min brightness 100 — not dark shadows
+    upper_gray = np.array([180, 30, 200]) # max saturation 30 — neutral grey only; max V 200
     mask_gray = cv2.inRange(hsv_band, lower_gray, upper_gray)
     # Remove coloured pixels from grey mask to avoid overlap
     mask_gray = cv2.bitwise_and(mask_gray, cv2.bitwise_not(mask_coloured))
