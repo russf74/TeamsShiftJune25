@@ -3,11 +3,19 @@ Teams Shift Monitor Application
 Version tracking and changelog
 """
 
-__version__ = "5.0.0"
+__version__ = "5.0.1"
 __version_date__ = "2026-06-21"
 
 # Changelog
 CHANGELOG = """
+Version 5.0.1 (2026-06-21) - PATCH: Fix unavailable detection false positives
+==========================================================================
+🔧 FIX: Blue-grey booked shifts (A... blocks) were misclassified as unavailable
+   - Root cause: Grey HSV saturation ceiling was too broad (80), catching blue-grey
+   - Fix: Tightened to saturation ≤ 30, value 100-200 (neutral grey only)
+   - Result: Only true U... unavailable blocks (S≈0) are now flagged unavailable
+   - Booked shifts with blue-grey Teams colour correctly remain as booked
+
 Version 5.0.0 (2026-06-21) - UNAVAILABLE SHIFT DETECTION
 =========================================================
 🆕 NEW: Detect and display Teams 'Unavailable' blocks
