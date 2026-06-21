@@ -5,6 +5,7 @@ from database import get_shifts_for_month
 from datetime import timedelta
 from database import get_shifts_for_month, get_availability_for_month, set_availability_for_date
 import datetime as pydatetime
+from version import __version__
 
 class CalendarView(ttk.Frame):
     def __init__(self, master, year, month, *args, **kwargs):
@@ -84,6 +85,10 @@ class CalendarView(ttk.Frame):
                                 frame_style = "Orange.TFrame"
                                 label_style = "Orange.TLabel"
                                 cb_style = "Orange.TCheckbutton"
+                        elif shift and shift['type'] == 'unavailable':
+                            frame_style = "Grey.TFrame"
+                            label_style = "Grey.TLabel"
+                            cb_style = "Grey.TCheckbutton"
                         else:
                             frame_style = None
                             label_style = None
@@ -179,6 +184,10 @@ class MainApp(ttk.Frame):
         style.configure("Purple.TFrame", background="#B266FF")  # purple for emailed open
         style.configure("Purple.TLabel", background="#B266FF")
         style.configure("Purple.TCheckbutton", background="#B266FF")
+
+        style.configure("Grey.TFrame", background="#C0C0C0")   # grey for unavailable
+        style.configure("Grey.TLabel", background="#C0C0C0")
+        style.configure("Grey.TCheckbutton", background="#C0C0C0")
         self.pack(fill="both", expand=True)
         self.current_date = pydatetime.datetime.today().replace(day=1)
 
@@ -212,6 +221,8 @@ class MainApp(ttk.Frame):
         # Place countdown label on a new row, smaller font
         self.countdown_label = ttk.Label(self.timer_frame, textvariable=self.countdown_var, font=("Arial", 9))
         self.countdown_label.grid(row=2, column=0, columnspan=5, padx=5, pady=(2, 0), sticky="w")
+        # Version label
+        ttk.Label(self.timer_frame, text=f"v{__version__}", font=("Arial", 8), foreground="grey").grid(row=0, column=6, padx=10, pady=2, sticky="e")
         self.timer_running = True  # Start timer immediately
         self.remaining = int(self.interval_var.get())
         self._scanning = False  # Flag to prevent calendar updates during scanning
@@ -907,19 +918,21 @@ class MainApp(ttk.Frame):
                             matched_dates_set.add(date_str)
                 elif shift_type == 'booked':
                     booked_dates_this_month.add(date_str)  # Track booked shifts found in current scan
-                    
+
                     # FIXED: Always call add_shift to ensure count is updated even for existing booked shifts
                     was_new_booking = not shift_exists(date_str, 'booked')
                     add_shift(date_str, 'booked', shift_count)  # This handles open->booked conversion and count updates
-                    
+
                     if was_new_booking:
                         new_booked_shifts_this_month += 1
                         total_new_shifts += 1 # Count new booked shifts
-                        
+
                         # If it was previously marked as 'open' in the DB, add_shift already handled the conversion
                         if shift_exists(date_str, 'open'):
-                            print(f"[GUI] Converted shift on {date_str} from open to booked.") 
-                                 # We might need to remove the 'open' one if it exists from a previous iteration of this scan.
+                            print(f"[GUI] Converted shift on {date_str} from open to booked.")
+                elif shift_type == 'unavailable':
+                    if not shift_exists(date_str, 'unavailable'):
+                        add_shift(date_str, 'unavailable')
 
             # Update status message
             scan_time = pydatetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -1245,7 +1258,7 @@ class MainApp(ttk.Frame):
 
 
 def launch_gui(root, config):
-    root.title("Teams Shift Database and Alert")
+    root.title(f"Teams Shift Database and Alert  v{__version__}")
     # Restore window size and position if available
     import sqlite3
     import os as _os

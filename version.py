@@ -3,11 +3,24 @@ Teams Shift Monitor Application
 Version tracking and changelog
 """
 
-__version__ = "1.1.3"
-__version_date__ = "2026-04-08"
+__version__ = "5.0.0"
+__version_date__ = "2026-06-21"
 
 # Changelog
 CHANGELOG = """
+Version 5.0.0 (2026-06-21) - UNAVAILABLE SHIFT DETECTION
+=========================================================
+🆕 NEW: Detect and display Teams 'Unavailable' blocks
+   - Grey blocks (U...) in the shifts calendar are now correctly identified
+   - Previously misclassified as booked; now stored as 'unavailable' type
+   - Calendar cells display with grey (#C0C0C0) background
+   - No false alerts triggered for unavailable days
+   - booked_shift_ocr.py: per-contour HSV classification (coloured=booked, grey=unavailable)
+
+🆕 NEW: Version label visible in app UI
+   - Version shown in top-right of control bar and in window title
+
+🔧 FIX: ocr_processing.py indentation corruption repaired
 Version 1.1.2 (2025-01-27) - MIDNIGHT RESET TIMING IMPROVEMENTS
 ================================================================
 ?? IMPROVEMENTS: Midnight Reset Stability & Reliability

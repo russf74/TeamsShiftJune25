@@ -63,9 +63,17 @@ def detect_booked_shifts(proc_image, image, image_path, year, month):
     lower_pink = np.array([140, 20, 150])
     upper_pink = np.array([170, 120, 255])
     mask_pink = cv2.inRange(hsv_band, lower_pink, upper_pink)
-    # Combine all masks
-    mask_combined = cv2.bitwise_or(mask_orange, mask_red)
-    mask_combined = cv2.bitwise_or(mask_combined, mask_pink)
+    # Coloured mask (orange + red + pink) = booked
+    mask_coloured = cv2.bitwise_or(mask_orange, mask_red)
+    mask_coloured = cv2.bitwise_or(mask_coloured, mask_pink)
+    # Grey mask (Teams 'Unavailable' marker — low saturation, mid-high value)
+    lower_gray = np.array([0, 0, 40])
+    upper_gray = np.array([180, 80, 245])
+    mask_gray = cv2.inRange(hsv_band, lower_gray, upper_gray)
+    # Remove coloured pixels from grey mask to avoid overlap
+    mask_gray = cv2.bitwise_and(mask_gray, cv2.bitwise_not(mask_coloured))
+    # Combined mask for contour detection
+    mask_combined = cv2.bitwise_or(mask_coloured, mask_gray)
 
     # Find contours of combined mask
     contours, _ = cv2.findContours(mask_combined, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -74,7 +82,14 @@ def detect_booked_shifts(proc_image, image, image_path, year, month):
         x, y, w, h = cv2.boundingRect(cnt)
         if w > 10 and h > 10:
             block_top = band_y1 + y
-            block_info = {'rect': (x, block_top, w, h)}
+            # Classify: coloured pixels → booked, grey-only → unavailable
+            cnt_mask = np.zeros(mask_coloured.shape, dtype=np.uint8)
+            cv2.drawContours(cnt_mask, [cnt], -1, 255, cv2.FILLED)
+            coloured_px = cv2.countNonZero(cv2.bitwise_and(mask_coloured, cnt_mask))
+            gray_px = cv2.countNonZero(cv2.bitwise_and(mask_gray, cnt_mask))
+            block_type = 'booked' if coloured_px >= gray_px else 'unavailable'
+            logging.info(f"[BOOKED OCR] Block at ({x},{block_top}) coloured_px={coloured_px} gray_px={gray_px} type={block_type}")
+            block_info = {'rect': (x, block_top, w, h), 'block_type': block_type}
             orange_blocks.append(block_info)
     # Date region extraction and OCR
     # --- Use the same date header Y as open shifts for robust date extraction ---
@@ -134,7 +149,7 @@ def detect_booked_shifts(proc_image, image, image_path, year, month):
                         date_str = date_obj.strftime("%d %b")
                         key = f'{year}-{month:02d}-{day:02d}'
                         result[key] = {
-                            'type': 'booked',
+                            'type': block['block_type'],
                             'coords': block['rect'],
                             'date': date_str,
                             'day': day,
