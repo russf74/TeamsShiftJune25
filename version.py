@@ -3,11 +3,19 @@ Teams Shift Monitor Application
 Version tracking and changelog
 """
 
-__version__ = "5.0.2"
+__version__ = "5.0.3"
 __version_date__ = "2026-06-21"
 
 # Changelog
 CHANGELOG = """
+Version 5.0.3 (2026-06-21) - PATCH: Use OCR text to confirm Unavailable blocks
+=================================================================================
+🔧 FIX: Grey blocks misclassified as 'unavailable' when they are actually 'A...' (Available)
+   - Root cause: colour mask alone cannot distinguish A... from U... (both are grey)
+   - Fix: for any grey-coloured contour, OCR the block text; only accept as 'unavailable'
+     if the first character is 'U'. All other grey blocks (A..., Ea..., etc.) are skipped.
+   - Removed wrong 2026-06-13 unavailable record from database
+
 Version 5.0.2 (2026-06-21) - FEATURE: Bump -10 countdown button
 =================================================================
 🆕 NEW: "Bump -10" button below the countdown timer

@@ -86,12 +86,29 @@ def detect_booked_shifts(proc_image, image, image_path, year, month):
         x, y, w, h = cv2.boundingRect(cnt)
         if w > 10 and h > 10:
             block_top = band_y1 + y
-            # Classify: coloured pixels → booked, grey-only → unavailable
             cnt_mask = np.zeros(mask_coloured.shape, dtype=np.uint8)
             cv2.drawContours(cnt_mask, [cnt], -1, 255, cv2.FILLED)
             coloured_px = cv2.countNonZero(cv2.bitwise_and(mask_coloured, cnt_mask))
             gray_px = cv2.countNonZero(cv2.bitwise_and(mask_gray, cnt_mask))
-            block_type = 'booked' if coloured_px >= gray_px else 'unavailable'
+            if coloured_px >= gray_px:
+                block_type = 'booked'
+            else:
+                # Grey block: OCR the block text to confirm it shows 'U...' (Unavailable).
+                # 'A...' (Available) blocks are also grey/blue-grey and must NOT be classified
+                # as unavailable — the letter is the only reliable discriminator.
+                block_text = ''
+                try:
+                    block_region = band[y:y+h, x:x+w]
+                    block_gray_img = cv2.cvtColor(block_region, cv2.COLOR_BGR2GRAY)
+                    scaled_block = cv2.resize(block_gray_img, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
+                    block_text = pytesseract.image_to_string(scaled_block, config='--psm 7').strip()
+                except Exception as ocr_err:
+                    logging.warning(f"[BOOKED OCR] Grey block OCR failed at ({x},{block_top}): {ocr_err}")
+                first_char = block_text[0].upper() if block_text else ''
+                if first_char != 'U':
+                    logging.info(f"[BOOKED OCR] Grey block at ({x},{block_top}) text='{block_text}' - not 'U...', skipping")
+                    continue
+                block_type = 'unavailable'
             logging.info(f"[BOOKED OCR] Block at ({x},{block_top}) coloured_px={coloured_px} gray_px={gray_px} type={block_type}")
             block_info = {'rect': (x, block_top, w, h), 'block_type': block_type}
             orange_blocks.append(block_info)
