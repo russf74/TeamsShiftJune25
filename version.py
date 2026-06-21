@@ -9,12 +9,12 @@ __version_date__ = "2026-06-21"
 # Changelog
 CHANGELOG = """
 Version 5.0.1 (2026-06-21) - PATCH: Fix unavailable detection false positives
-==========================================================================
-🔧 FIX: Blue-grey booked shifts (A... blocks) were misclassified as unavailable
-   - Root cause: Grey HSV saturation ceiling was too broad (80), catching blue-grey
-   - Fix: Tightened to saturation ≤ 30, value 100-200 (neutral grey only)
-   - Result: Only true U... unavailable blocks (S≈0) are now flagged unavailable
-   - Booked shifts with blue-grey Teams colour correctly remain as booked
+=================================================================================
+🔧 FIX: Blue-grey booked shifts (A...) were misclassified as unavailable
+   - Root cause: Grey HSV saturation ceiling was 80 — too broad
+   - Fix: Tightened to S ≤ 30, V 100–200 (neutral grey only)
+   - Booked shift blocks have Teams blue-grey tint (S ≈30–50) — now excluded
+   - Only truly neutral U... blocks (S ≈0–15) classified as unavailable
 
 Version 5.0.0 (2026-06-21) - UNAVAILABLE SHIFT DETECTION
 =========================================================
