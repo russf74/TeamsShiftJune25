@@ -221,6 +221,9 @@ class MainApp(ttk.Frame):
         # Place countdown label on a new row, smaller font
         self.countdown_label = ttk.Label(self.timer_frame, textvariable=self.countdown_var, font=("Arial", 9))
         self.countdown_label.grid(row=2, column=0, columnspan=5, padx=5, pady=(2, 0), sticky="w")
+        # Bump -10 button: knock 10s off the remaining countdown (only if result >= 10)
+        self.bump_btn = ttk.Button(self.timer_frame, text="Bump -10", command=self.bump_countdown, width=10)
+        self.bump_btn.grid(row=3, column=0, columnspan=2, padx=5, pady=(2, 4), sticky="w")
         # Version label
         ttk.Label(self.timer_frame, text=f"v{__version__}", font=("Arial", 8), foreground="grey").grid(row=0, column=6, padx=10, pady=2, sticky="e")
         self.timer_running = True  # Start timer immediately
@@ -1198,6 +1201,12 @@ class MainApp(ttk.Frame):
             
     def update_countdown_label(self):
         self.countdown_var.set(f"Countdown: {self.remaining}s")
+
+    def bump_countdown(self):
+        """Subtract 10s from the remaining countdown. Only applies if result would be >= 10."""
+        if self.remaining - 10 >= 10:
+            self.remaining -= 10
+            self.update_countdown_label()
         
     def prev_month(self):
         prev = self.current_date - timedelta(days=1)

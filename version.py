@@ -3,11 +3,18 @@ Teams Shift Monitor Application
 Version tracking and changelog
 """
 
-__version__ = "5.0.1"
+__version__ = "5.0.2"
 __version_date__ = "2026-06-21"
 
 # Changelog
 CHANGELOG = """
+Version 5.0.2 (2026-06-21) - FEATURE: Bump -10 countdown button
+=================================================================
+🆕 NEW: "Bump -10" button below the countdown timer
+   - Clicking the button subtracts 10 seconds from the remaining scan countdown
+   - Only applies if the result would be >= 10 seconds (no-op otherwise)
+   - Allows fast-forwarding to the next scan without waiting
+
 Version 5.0.1 (2026-06-21) - PATCH: Fix unavailable detection false positives
 =================================================================================
 🔧 FIX: Blue-grey booked shifts (A...) were misclassified as unavailable
