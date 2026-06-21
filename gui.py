@@ -3,6 +3,7 @@ from tkinter import ttk, messagebox
 import calendar
 from datetime import datetime, timedelta
 from database import get_shifts_for_month, get_availability_for_month, set_availability_for_date
+from version import APP_VERSION
 
 class CalendarView(ttk.Frame):
     def __init__(self, master, year, month, *args, **kwargs):
@@ -63,6 +64,10 @@ class CalendarView(ttk.Frame):
                             frame_style = "Orange.TFrame"
                             label_style = "Orange.TLabel"
                             cb_style = "Orange.TCheckbutton"
+                    elif shift and shift['type'] == 'unavailable':
+                        frame_style = "Grey.TFrame"
+                        label_style = "Grey.TLabel"
+                        cb_style = "Grey.TCheckbutton"
                     else:
                         frame_style = None
                         label_style = None
@@ -128,6 +133,10 @@ class MainApp(ttk.Frame):
         style.configure("Purple.TFrame", background="#B266FF")  # purple for emailed open
         style.configure("Purple.TLabel", background="#B266FF")
         style.configure("Purple.TCheckbutton", background="#B266FF")
+
+        style.configure("Grey.TFrame", background="#C0C0C0")   # grey for unavailable
+        style.configure("Grey.TLabel", background="#C0C0C0")
+        style.configure("Grey.TCheckbutton", background="#C0C0C0")
         self.pack(fill="both", expand=True)
         self.current_date = datetime.today().replace(day=1)
 
@@ -154,6 +163,8 @@ class MainApp(ttk.Frame):
         # Place countdown label on a new row, smaller font
         self.countdown_label = ttk.Label(self.timer_frame, textvariable=self.countdown_var, font=("Arial", 9))
         self.countdown_label.grid(row=2, column=0, columnspan=5, padx=5, pady=(2, 0), sticky="w")
+        # Version label — top-right of controls
+        ttk.Label(self.timer_frame, text=f"v{APP_VERSION}", font=("Arial", 8), foreground="grey").grid(row=0, column=6, padx=10, pady=2, sticky="e")
         self.timer_running = False
         self.remaining = int(self.interval_var.get())
         self._scanning = False  # Flag to prevent calendar updates during scanning
@@ -236,16 +247,18 @@ class MainApp(ttk.Frame):
             # Compose summary
             now = datetime.datetime.now()
             subject = f"TeamsDB Daily Summary for {now.strftime('%Y-%m-%d')}"
+            scanning_status_line = "SCANNING NOT ACTIVE\n\n" if not self.scanning_on else "" # Added line when scanning disabled
             body = (
-                f"Teams Shift App Daily Summary ({now.strftime('%A, %B %d, %Y')})\n\n"
-                f"Scans performed today: {self.scan_count_today}\n"
-                + (f"Last scan time: {self.last_scan_time.strftime('%H:%M:%S')}\n" if self.last_scan_time else "")
-                + f"New shifts found in last scan: {self.last_new_shifts}\n"
-                + f"Alerts sent in last scan: {self.last_alert_count}\n"
-                + f"Last scan status: {self.last_scan_status}\n"
-                + (f"\nErrors today ({len(self.error_log_today)}):\n" + "\n".join(self.error_log_today[-5:]) if self.error_log_today else "\nNo errors detected in the app today.\n")
-                + "\nApp is running smoothly. If you see this email, the scheduler and scan logic are both active.\n"
-                + "If you have not received this email by 6:10pm, please check the app is running.\n"
+                scanning_status_line +
+                f"Teams Shift App Daily Summary ({now.strftime('%A, %B %d, %Y')})\n\n" +
+                f"Scans performed today: {self.scan_count_today}\n" +
+                (f"Last scan time: {self.last_scan_time.strftime('%H:%M:%S')}\n" if self.last_scan_time else "") +
+                f"New shifts found in last scan: {self.last_new_shifts}\n" +
+                f"Alerts sent in last scan: {self.last_alert_count}\n" +
+                f"Last scan status: {self.last_scan_status}\n" +
+                (f"\nErrors today ({len(self.error_log_today)}):\n" + "\n".join(self.error_log_today[-5:]) if self.error_log_today else "\nNo errors detected in the app today.\n") +
+                "\nApp is running smoothly. If you see this email, the scheduler and scan logic are both active.\n" +
+                "If you have not received this email by 6:10pm, please check the app is running.\n"
             )
             msg = MIMEText(body, "plain", "utf-8")
             msg['Subject'] = subject
@@ -466,6 +479,8 @@ class MainApp(ttk.Frame):
                 # Also add booked shifts to DB if not present (for completeness)
                 elif shift_type == 'booked' and not shift_exists(date_str, 'booked'):
                     add_shift(date_str, 'booked')
+                elif shift_type == 'unavailable' and not shift_exists(date_str, 'unavailable'):
+                    add_shift(date_str, 'unavailable')
             # Track open shifts for this month for later cleanup
             found_open_shifts_by_month[(year, month)] = open_dates_this_month
             import datetime as pydatetime
@@ -511,7 +526,8 @@ class MainApp(ttk.Frame):
                     self.scan_status_var.set("SMTP settings missing or incomplete.")
                     return
                 subject = "New Open Shifts Matching Your Availability"
-                body = "The following new open shifts were found that match your availability:\n\n"
+                scanning_status_line = "SCANNING NOT ACTIVE\n\n" if not self.scanning_on else "" # Added line when scanning disabled
+                body = scanning_status_line + "The following new open shifts were found that match your availability:\n\n"
                 for date_str in matched_dates:
                     try:
                         dt = datetime.datetime.strptime(date_str, "%Y-%m-%d")
@@ -542,7 +558,6 @@ class MainApp(ttk.Frame):
             # --- WhatsApp automation: send message after emailing ---
             try:
                 from automation import send_whatsapp_message
-                # You can change the group name here if needed
                 group_name = "Manor Shift Alerts"
                 send_whatsapp_message(group_name, matched_dates)
             except Exception as e:
@@ -724,7 +739,7 @@ class MainApp(ttk.Frame):
 
 
 def launch_gui(root, config):
-    root.title("Teams Shift Database and Alert")
+    root.title(f"Teams Shift Database and Alert  v{APP_VERSION}")
     # Restore window size and position if available
     import sqlite3
     DB_PATH = "shifts.db"

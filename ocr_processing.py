@@ -208,17 +208,29 @@ def extract_shifts_from_image(image_path, year, month):
     cv2.imwrite(debug_booked_shifts_row_path, booked_shifts_row)
 
     hsv_b = cv2.cvtColor(booked_shifts_row, cv2.COLOR_BGR2HSV)
-    mask_b = cv2.inRange(hsv_b, lower_orange, upper_orange)
+    mask_orange_b = cv2.inRange(hsv_b, lower_orange, upper_orange)
+    # Detect grey blocks (Teams 'Unavailable' marker) — low saturation, mid-high value
+    lower_gray = np.array([0, 0, 40])
+    upper_gray = np.array([180, 80, 245])
+    mask_gray_b = cv2.inRange(hsv_b, lower_gray, upper_gray)
+    # Remove any orange pixels from the grey mask to avoid overlap
+    mask_gray_b = cv2.bitwise_and(mask_gray_b, cv2.bitwise_not(mask_orange_b))
+    mask_b = cv2.bitwise_or(mask_orange_b, mask_gray_b)
     debug_mask_b_path = image_path.replace('.png', '_booked_shifts_mask.png')
     cv2.imwrite(debug_mask_b_path, mask_b)
 
     mask_b = cv2.morphologyEx(mask_b, cv2.MORPH_OPEN, kernel)
     mask_b = cv2.morphologyEx(mask_b, cv2.MORPH_CLOSE, kernel)
+    # Apply the same cleanup to individual masks so per-contour classification is accurate
+    mask_orange_b = cv2.morphologyEx(mask_orange_b, cv2.MORPH_OPEN, kernel)
+    mask_orange_b = cv2.morphologyEx(mask_orange_b, cv2.MORPH_CLOSE, kernel)
+    mask_gray_b = cv2.morphologyEx(mask_gray_b, cv2.MORPH_OPEN, kernel)
+    mask_gray_b = cv2.morphologyEx(mask_gray_b, cv2.MORPH_CLOSE, kernel)
     debug_mask_b_clean_path = image_path.replace('.png', '_booked_shifts_mask_clean.png')
     cv2.imwrite(debug_mask_b_clean_path, mask_b)
 
     contours_b, _ = cv2.findContours(mask_b, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    print(f"[DEBUG] Found {len(contours_b)} orange contours in booked shifts row.")
+    print(f"[DEBUG] Found {len(contours_b)} contours (orange+grey) in booked shifts row.")
 
     booked_date_map = {}
     # For each booked shift contour, find the closest open shift box by (x, w) proximity
@@ -226,6 +238,13 @@ def extract_shifts_from_image(image_path, year, month):
     BOOKED_MATCH_X_THRESH = 120  # pixels, increased for more robust matching
     for i, cnt in enumerate(contours_b):
         bx, by, bw, bh = cv2.boundingRect(cnt)
+        # Classify contour: orange pixels → booked, grey-only pixels → unavailable
+        cnt_mask = np.zeros(mask_orange_b.shape, dtype=np.uint8)
+        cv2.drawContours(cnt_mask, [cnt], -1, 255, cv2.FILLED)
+        orange_px = cv2.countNonZero(cv2.bitwise_and(mask_orange_b, cnt_mask))
+        gray_px = cv2.countNonZero(cv2.bitwise_and(mask_gray_b, cnt_mask))
+        detected_shift_type = 'booked' if orange_px >= gray_px else 'unavailable'
+        print(f"[DEBUG] Booked row contour {i}: orange_px={orange_px}, gray_px={gray_px}, type={detected_shift_type}")
         bx_center = bx + bw // 2
         # Find the open shift box with closest x-center
         min_dist = float('inf')
@@ -277,7 +296,7 @@ def extract_shifts_from_image(image_path, year, month):
         if match:
             day = int(match.group(1))
             date_str = f"{year_num}-{month_num:02d}-{day:02d}"
-            booked_date_map[date_str] = 'booked'
+            booked_date_map[date_str] = detected_shift_type
             cv2.rectangle(debug_img, (abs_x, abs_y), (abs_x + w, abs_y + h), (0, 255, 0), 2)
             cv2.putText(debug_img, f"{day}", (abs_x, abs_y - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
         else:
