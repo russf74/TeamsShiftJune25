@@ -3,11 +3,23 @@ Teams Shift Monitor Application
 Version tracking and changelog
 """
 
-__version__ = "5.0.4"
+__version__ = "5.0.5"
 __version_date__ = "2026-06-21"
 
 # Changelog
 CHANGELOG = """
+Version 5.0.5 (2026-06-21) - FEATURE: Detection overlays and scan log
+=======================================================================
+🆕 NEW: Cell type badge inside every coloured calendar cell
+   - open cells show "open (N)" with count
+   - booked cells show "booked"
+   - unavailable cells show "unavail"
+🆕 NEW: Live scan log panel in the left sidebar
+   - Shows timestamped detection results for each scanned month
+   - Lists which day numbers were found as open / booked / unavail
+   - Scrollable, keeps last 15 scan entries
+   - Updates immediately as each month finishes scanning
+
 Version 5.0.4 (2026-06-21) - FIX: Correct unavailable block detection
 =======================================================================
 🔧 FIX: U... blocks (June 22-26) were never detected - band was only 80px tall
