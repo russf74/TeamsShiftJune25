@@ -8,22 +8,20 @@ __version_date__ = "2026-06-22"
 
 # Changelog
 CHANGELOG = """
-Version 5.1.0 (2026-06-22) - FIX: Erroneous unavailable entries in non-June months
+Version 5.1.0 (2026-06-22) - FIX: Eliminate false unavailable entries in all months
 ====================================================================================
 ROOT CAUSES FIXED:
-1. database.py add_shift(): no guard against writing 'unavailable' on a date
-   already stored as 'booked' -> added early-return check (mirrors open-shift guard).
-   Also: when adding 'booked', now explicitly deletes any existing 'unavailable' row
-   for that date.
-2. gui.py scan cleanup loop: delete_shifts_not_in_list() was called for 'open' and
-   'booked' after each scan, but NOT for 'unavailable' -> stale/wrong unavailable rows
-   accumulated across months and were never cleaned out.
-   Fixed: added found_unavail_shifts_by_month tracking and cleanup call.
-3. DB repair: removed all 19 pre-fix unavailable rows written by the old broken
-   grey-mask detector (before v5.0.4): 1 booked-clash (Aug-25) + 18 pre-fix entries
-   across Jun/Jul/Aug/Sep. Database is now clean.
-4. Post-VS2026 health check: all 9 deps OK, all 10 core modules compile, DB integrity
-   confirmed clean. health_report.txt written to app directory.
+  1. database.py add_shift(): unavailable now blocked if date already booked
+     - also clears any stale unavailable row when a booked row is added
+  2. gui.py scan cleanup loop: delete_shifts_not_in_list now called for
+     unavailable type after every scan (was only called for open/booked)
+     - found_unavail_shifts_by_month dict added to track per-month sets
+  3. DB repair: removed all 19 stale unavailable rows written before v5.0.4
+     detection fix (pre-2026-06-22 23:07) including the Aug-25 booked/unavail
+     conflict. DB now contains only verified open and booked shifts.
+  4. Post-VS2026 health check passed: Python 3.13.4, cv2 4.11.0, tesseract
+     5.5.0, tkinter 8.6, numpy 2.3, PIL 11.2, pywinauto 0.6.9 - all OK.
+     health_report.txt written to app directory.
 
 Version 5.0.5 (2026-06-21) - FEATURE: Detection overlays and scan log
 =======================================================================
