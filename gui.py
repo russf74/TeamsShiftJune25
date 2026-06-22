@@ -882,6 +882,7 @@ class MainApp(ttk.Frame):
         # Track all found shifts per (year, month)
         found_open_shifts_by_month = {}
         found_booked_shifts_by_month = {}
+        found_unavail_shifts_by_month = {}
 
         def ocr_and_store(image_path, year, month):
             # (Screenshot cleanup is now handled at the start of manual_scan, not here)
@@ -971,9 +972,10 @@ class MainApp(ttk.Frame):
             self.after(0, lambda s=status_msg.strip(): self.scan_status_var.set(s))
             
             # Track open shifts for this month for later cleanup (this might need adjustment)
-            # Store both open and booked shifts found during current scan for cleanup
+            # Store open, booked and unavailable shifts found during current scan for cleanup
             found_open_shifts_by_month[(year, month)] = open_dates_this_month
             found_booked_shifts_by_month[(year, month)] = booked_dates_this_month
+            found_unavail_shifts_by_month[(year, month)] = unavail_dates_this_month
             # Fire the scan log update immediately so the user sees results as each month completes
             _o = set(open_dates_this_month)
             _b = set(booked_dates_this_month)
@@ -1114,10 +1116,12 @@ class MainApp(ttk.Frame):
                 # Get the shifts found for this month (empty set if none found)
                 open_shifts_found = found_open_shifts_by_month.get((year, month), set())
                 booked_shifts_found = found_booked_shifts_by_month.get((year, month), set())
-                
+                unavail_shifts_found = found_unavail_shifts_by_month.get((year, month), set())
+
                 # Clean up stale shifts for this month
                 delete_shifts_not_in_list(year, month, open_shifts_found, shift_type='open')
                 delete_shifts_not_in_list(year, month, booked_shifts_found, shift_type='booked')
+                delete_shifts_not_in_list(year, month, unavail_shifts_found, shift_type='unavailable')
 
             current_datetime = pydatetime.datetime.now()
 

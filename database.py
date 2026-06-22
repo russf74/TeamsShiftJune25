@@ -152,6 +152,8 @@ def add_shift(date_str, shift_type='open', count=1):
         # If adding a booked shift, remove any existing open shifts for this date
         c.execute("DELETE FROM shifts WHERE date = ? AND shift_type = 'open'", (date_str,))
         logger.info(f"Removed any open shifts for {date_str} (now booked)")
+        # Also remove any stale unavailable row — a booked date cannot be unavailable
+        c.execute("DELETE FROM shifts WHERE date = ? AND shift_type = 'unavailable'", (date_str,))
     elif shift_type == 'open':
         # If adding an open shift, check if date is already booked
         c.execute("SELECT 1 FROM shifts WHERE date = ? AND shift_type = 'booked'", (date_str,))
@@ -159,6 +161,13 @@ def add_shift(date_str, shift_type='open', count=1):
             logger.info(f"Skipping open shift for {date_str} - already booked")
             conn.close()
             return  # Don't add open shift for dates you're already booked
+    elif shift_type == 'unavailable':
+        # Never store unavailable on a date that is already booked
+        c.execute("SELECT 1 FROM shifts WHERE date = ? AND shift_type = 'booked'", (date_str,))
+        if c.fetchone():
+            logger.info(f"Skipping unavailable shift for {date_str} - date is already booked")
+            conn.close()
+            return
     
     # Check if this shift already exists - FETCH alerted flag too!
     c.execute("SELECT count, created_at, alerted FROM shifts WHERE date = ? AND shift_type = ?", (date_str, shift_type))
@@ -258,8 +267,14 @@ def init_db():
         shift_type TEXT NOT NULL,
         first_seen TEXT NOT NULL,
         last_alerted INTEGER DEFAULT 0,
+        confirmed_email_sent INTEGER DEFAULT 0,
         UNIQUE(date, shift_type)
     )''')
+    # Migration: add confirmed_email_sent to shift_history if it doesn't exist (for existing DBs)
+    try:
+        c.execute("ALTER TABLE shift_history ADD COLUMN confirmed_email_sent INTEGER DEFAULT 0")
+    except Exception:
+        pass  # Column already exists
     conn.commit()
     conn.close()
 

@@ -3,21 +3,27 @@ Teams Shift Monitor Application
 Version tracking and changelog
 """
 
-__version__ = "5.0.6"
+__version__ = "5.1.0"
 __version_date__ = "2026-06-22"
 
 # Changelog
 CHANGELOG = """
-Version 5.0.6 (2026-06-22) - FIX: Unavailable false positives in Jul/Aug/Sep
-===============================================================================
-🔧 FIX: Three separate root causes all fixed:
-   1. V floor raised 100->205: Teams row background is #C0C0C0 (V=192), just below real
-      U... blocks (#D7D7D7, V=215). Narrow band V=205-220 separates them exactly.
-   2. Minimum block height raised 10->40px: row-separator border lines (h=15-21px)
-      have V=215 but are not shift blocks - rejected by the height guard.
-   3. Previous V=192 background fill was catching at 91%% fill due to large contour area;
-      both height and V floor guards together eliminate all false positives.
-   Verified on all 4 month screenshots: Jun=5 unavail (correct), Jul/Aug/Sep=0 (correct).
+Version 5.1.0 (2026-06-22) - FIX: Erroneous unavailable entries in non-June months
+====================================================================================
+ROOT CAUSES FIXED:
+1. database.py add_shift(): no guard against writing 'unavailable' on a date
+   already stored as 'booked' -> added early-return check (mirrors open-shift guard).
+   Also: when adding 'booked', now explicitly deletes any existing 'unavailable' row
+   for that date.
+2. gui.py scan cleanup loop: delete_shifts_not_in_list() was called for 'open' and
+   'booked' after each scan, but NOT for 'unavailable' -> stale/wrong unavailable rows
+   accumulated across months and were never cleaned out.
+   Fixed: added found_unavail_shifts_by_month tracking and cleanup call.
+3. DB repair: removed all 19 pre-fix unavailable rows written by the old broken
+   grey-mask detector (before v5.0.4): 1 booked-clash (Aug-25) + 18 pre-fix entries
+   across Jun/Jul/Aug/Sep. Database is now clean.
+4. Post-VS2026 health check: all 9 deps OK, all 10 core modules compile, DB integrity
+   confirmed clean. health_report.txt written to app directory.
 
 Version 5.0.5 (2026-06-21) - FEATURE: Detection overlays and scan log
 =======================================================================

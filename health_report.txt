@@ -1,0 +1,70 @@
+============================================================
+  Teams Shift Monitor — Post-VS2026 Health Report
+  Generated: 2026-06-22 07:57:04
+============================================================
+
+[1] Python Runtime
+    Python  : 3.13.4 (tags/v3.13.4:8a526ec, Jun  3 2025, 17:46:04) [MSC v.1943 64 bit (AMD64)]
+    Platform: win32
+
+[2] Dependencies
+    OK  tkinter        8.6
+    OK  cv2            4.11.0
+    OK  numpy          2.3.0
+    OK  PIL            11.2.1
+    OK  pytesseract    5.5.0.20241111
+    OK  pyautogui      0.9.54
+    OK  pywinauto      0.6.9
+    OK  smtplib        built-in ok
+    OK  sqlite3        3.49.1
+    => 9 ok, 0 missing/error
+
+[3] Core Module Compile Check
+    OK  main.py
+    OK  gui.py
+    OK  database.py
+    OK  booked_shift_ocr.py
+    OK  open_shift_ocr.py
+    OK  ocr_processing.py
+    OK  email_alert.py
+    OK  version.py
+    OK  config.py
+    OK  status_server.py
+    → 10 ok, 0 errors
+
+[4] App Version
+    Version : 5.0.5
+    Date    : 2026-06-21
+
+[5] Database Integrity
+    shifts.db  (53,248 bytes)
+      booked         20 row(s)
+      open           22 row(s)
+    OK  No unavailable/booked conflicts
+    OK  No unavailable/open conflicts
+    OK  No duplicate (date,shift_type) pairs
+
+    Upcoming shifts (Jun-Sep 2026):
+      2026-06-05  open          count=2  alerted=1
+      2026-06-17  open          count=1  alerted=0
+      2026-06-20  booked        count=1  alerted=0  [email confirmed]
+      2026-07-15  open          count=1  alerted=0
+      2026-07-16  open          count=1  alerted=0
+      2026-07-25  booked        count=1  alerted=0  [email confirmed]
+      2026-08-04  open          count=1  alerted=0
+      2026-08-08  booked        count=1  alerted=0  [email confirmed]
+      2026-08-25  booked        count=1  alerted=0  [email confirmed]
+      2026-09-04  open          count=1  alerted=0
+      2026-09-08  booked        count=1  alerted=0  [email confirmed]
+      2026-09-25  open          count=1  alerted=1
+
+[6] Template Image Files
+    OK  bookedshifts.png  (684 bytes)
+    OK  openshifts.png  (823 bytes)
+    OK  calendar.png  (1,142 bytes)
+    OK  dots.png  (230 bytes)
+    OK  shifts.png  (569 bytes)
+    OK  today.png  (953 bytes)
+
+[7] Summary
+    [OK] All checks passed -- system is healthy post-VS2026 upgrade
