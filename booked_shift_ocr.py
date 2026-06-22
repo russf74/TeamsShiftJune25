@@ -70,12 +70,13 @@ def detect_booked_shifts(proc_image, image, image_path, year, month):
     mask_coloured = cv2.bitwise_or(mask_orange, mask_red)
     mask_coloured = cv2.bitwise_or(mask_coloured, mask_pink)
     # Grey mask for Teams 'Unavailable' blocks.
-    # U... blocks are a DISTINCTLY neutral grey with V≈215, S=0.
-    # A... (Available) blocks are near-white (V=255) or blue-tinted light grey (V=240) — both excluded.
-    # Empty calendar grid cells are also V=240 — excluded.
-    # Ceiling of V=220 cleanly captures V=215 (U...) without false-positives.
-    lower_gray = np.array([0,  0, 100])   # min brightness — not dark shadows
-    upper_gray = np.array([180, 30, 220]) # V<=220: captures U... (215), excludes cells/A... (240+)
+    # Real U... blocks are Teams #D7D7D7 grey  -> HSV V≈215, S=0
+    # Teams grid/row background is #C0C0C0 grey -> HSV V≈192, S=0   (false positive)
+    # Empty calendar cells have V≈240 (near-white)                    (already excluded)
+    # A... Available blocks are V=255 (white)                         (already excluded)
+    # Narrow band V=205-220 cleanly captures only the V=215 U... blocks.
+    lower_gray = np.array([0,   0, 205])
+    upper_gray = np.array([180, 30, 220])
     mask_gray = cv2.inRange(hsv_band, lower_gray, upper_gray)
     # Remove coloured pixels from grey mask to avoid overlap
     mask_gray = cv2.bitwise_and(mask_gray, cv2.bitwise_not(mask_coloured))
@@ -87,8 +88,9 @@ def detect_booked_shifts(proc_image, image, image_path, year, month):
     orange_blocks = []
     for cnt in contours:
         x, y, w, h = cv2.boundingRect(cnt)
-        # Basic size guard: shift blocks are never wider than ~150px or shorter than 10px
-        if w < 30 or h < 10 or w > 150:
+        # Basic size guard: real shift blocks are always taller than ~40px and narrower than ~150px.
+        # Thin horizontal strips (h<40) are row-separator lines, not shift blocks.
+        if w < 30 or h < 40 or w > 150:
             continue
         block_top = band_y1 + y
         cnt_mask = np.zeros(mask_coloured.shape, dtype=np.uint8)

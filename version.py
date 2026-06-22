@@ -3,11 +3,22 @@ Teams Shift Monitor Application
 Version tracking and changelog
 """
 
-__version__ = "5.0.5"
-__version_date__ = "2026-06-21"
+__version__ = "5.0.6"
+__version_date__ = "2026-06-22"
 
 # Changelog
 CHANGELOG = """
+Version 5.0.6 (2026-06-22) - FIX: Unavailable false positives in Jul/Aug/Sep
+===============================================================================
+🔧 FIX: Three separate root causes all fixed:
+   1. V floor raised 100->205: Teams row background is #C0C0C0 (V=192), just below real
+      U... blocks (#D7D7D7, V=215). Narrow band V=205-220 separates them exactly.
+   2. Minimum block height raised 10->40px: row-separator border lines (h=15-21px)
+      have V=215 but are not shift blocks - rejected by the height guard.
+   3. Previous V=192 background fill was catching at 91%% fill due to large contour area;
+      both height and V floor guards together eliminate all false positives.
+   Verified on all 4 month screenshots: Jun=5 unavail (correct), Jul/Aug/Sep=0 (correct).
+
 Version 5.0.5 (2026-06-21) - FEATURE: Detection overlays and scan log
 =======================================================================
 🆕 NEW: Cell type badge inside every coloured calendar cell
