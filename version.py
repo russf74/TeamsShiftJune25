@@ -3,11 +3,20 @@ Teams Shift Monitor Application
 Version tracking and changelog
 """
 
-__version__ = "1.1.4"
+__version__ = "1.1.5"
 __version_date__ = "2026-07-08"
 
 # Changelog
 CHANGELOG = """
+Version 1.1.5 (2026-07-08) - COUNTDOWN SKIP BUTTON
+===================================================
+✨ NEW: -10s button below the countdown timer
+   - Clicking the button subtracts 10 seconds from the current countdown.
+   - If fewer than 10 seconds remain the button has no effect, preventing
+     an accidental immediate trigger.
+   - Useful for quickly advancing to the next scan during testing without
+     waiting for the full interval.
+
 Version 1.1.4 (2026-07-08) - MIDNIGHT RESET FALSE-POSITIVE FIX
 ===============================================================
 🐛 FIX: Spurious shift alerts generated immediately after midnight reset

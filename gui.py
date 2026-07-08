@@ -215,6 +215,8 @@ class MainApp(ttk.Frame):
         self.timer_running = True  # Start timer immediately
         self.remaining = int(self.interval_var.get())
         self._scanning = False  # Flag to prevent calendar updates during scanning
+        self.minus10_btn = ttk.Button(self.timer_frame, text="-10s", command=self.subtract_ten_seconds, width=6)
+        self.minus10_btn.grid(row=3, column=0, padx=5, pady=(2, 4), sticky="w")
 
         # --- Second row: Action buttons ---
         self.scan_btn = ttk.Button(self.timer_frame, text="Scan", command=self.manual_scan)
@@ -1192,6 +1194,12 @@ class MainApp(ttk.Frame):
         # Reset countdown display after a few seconds
         self.after(3000, lambda: self.update_countdown_label())
             
+    def subtract_ten_seconds(self):
+        """Knock 10 seconds off the countdown timer (only when >= 10s remain)."""
+        if self.remaining >= 10:
+            self.remaining -= 10
+            self.update_countdown_label()
+
     def update_countdown_label(self):
         self.countdown_var.set(f"Countdown: {self.remaining}s")
         
