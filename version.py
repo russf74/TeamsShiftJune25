@@ -3,11 +3,26 @@ Teams Shift Monitor Application
 Version tracking and changelog
 """
 
-__version__ = "1.1.5"
+__version__ = "1.1.6"
 __version_date__ = "2026-07-08"
 
 # Changelog
 CHANGELOG = """
+Version 1.1.6 (2026-07-08) - HOTFIX: Scanning broken by over-aggressive OCR skip
+==================================================================================
+🐛 FIX: Every month was being skipped with "Could not OCR month/year" warning
+   - Root cause: v1.1.4 changed the OCR-failure path to skip the month entirely.
+     The month-label OCR (extract_month_year_from_image) frequently returns None
+     even during normal scans because the arrow-template threshold (0.85) is
+     strict and the static fallback region depends on Teams window position.
+     This caused ALL four months to be skipped on every regular scan.
+   - The underlying midnight false-positive race is already fully protected by
+     the _midnight_reset_in_progress flag added to gui.py (v1.1.4), which
+     aborts any scan before it even starts during the reset window.
+   - Fix: revert the OCR-failure path to warn-and-continue (using the expected
+     month value), matching pre-v1.1.4 behaviour. The hard-skip is removed
+     because it is redundant given the gui.py guard and actively breaks scans.
+
 Version 1.1.5 (2026-07-08) - COUNTDOWN SKIP BUTTON
 ===================================================
 ✨ NEW: -10s button below the countdown timer
