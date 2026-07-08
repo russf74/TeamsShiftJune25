@@ -5,7 +5,6 @@ from database import get_shifts_for_month
 from datetime import timedelta
 from database import get_shifts_for_month, get_availability_for_month, set_availability_for_date
 import datetime as pydatetime
-from version import __version__
 
 class CalendarView(ttk.Frame):
     def __init__(self, master, year, month, *args, **kwargs):
@@ -85,10 +84,6 @@ class CalendarView(ttk.Frame):
                                 frame_style = "Orange.TFrame"
                                 label_style = "Orange.TLabel"
                                 cb_style = "Orange.TCheckbutton"
-                        elif shift and shift['type'] == 'unavailable':
-                            frame_style = "Grey.TFrame"
-                            label_style = "Grey.TLabel"
-                            cb_style = "Grey.TCheckbutton"
                         else:
                             frame_style = None
                             label_style = None
@@ -107,24 +102,13 @@ class CalendarView(ttk.Frame):
                             label = ttk.Label(frame, text=str(day))
                         label.pack()
                         var = tk.BooleanVar(value=is_available)
-                        # --- Type badge: shows detected shift type inside the cell ---
-                        badge_text = " "
-                        badge_fg = "#333333"
-                        if shift:
-                            t = shift['type']
-                            if t == 'open':
-                                count = shift.get('count', 1)
-                                badge_text = f"open ({count})" if count > 1 else "open"
-                                badge_fg = "#004400"
-                            elif t == 'booked':
-                                badge_text = "booked"
-                                badge_fg = "#ffffff"
-                            elif t == 'unavailable':
-                                badge_text = "unavail"
-                                badge_fg = "#444444"
-                        spacer = tk.Label(frame, text=badge_text, width=9,
-                                         bg=style.lookup(label_style, 'background') if label_style else None,
-                                         fg=badge_fg, font=("Arial", 8, "bold"))
+                        # --- Show open shift count in the middle spacer ---
+                        count_text = " "
+                        if shift and shift['type'] == 'open':
+                            count = shift.get('count', 1)
+                            if count > 0:
+                                count_text = f"({count})"
+                        spacer = tk.Label(frame, text=count_text, width=9, bg=style.lookup(label_style, 'background') if label_style else None, fg="#333", font=("Arial", 9))
                         spacer.pack()
                         if cb_style:
                             cb = ttk.Checkbutton(frame, text="", variable=var,
@@ -195,10 +179,6 @@ class MainApp(ttk.Frame):
         style.configure("Purple.TFrame", background="#B266FF")  # purple for emailed open
         style.configure("Purple.TLabel", background="#B266FF")
         style.configure("Purple.TCheckbutton", background="#B266FF")
-
-        style.configure("Grey.TFrame", background="#C0C0C0")   # grey for unavailable
-        style.configure("Grey.TLabel", background="#C0C0C0")
-        style.configure("Grey.TCheckbutton", background="#C0C0C0")
         self.pack(fill="both", expand=True)
         self.current_date = pydatetime.datetime.today().replace(day=1)
 
@@ -232,11 +212,6 @@ class MainApp(ttk.Frame):
         # Place countdown label on a new row, smaller font
         self.countdown_label = ttk.Label(self.timer_frame, textvariable=self.countdown_var, font=("Arial", 9))
         self.countdown_label.grid(row=2, column=0, columnspan=5, padx=5, pady=(2, 0), sticky="w")
-        # Bump -10 button: knock 10s off the remaining countdown (only if result >= 10)
-        self.bump_btn = ttk.Button(self.timer_frame, text="Bump -10", command=self.bump_countdown, width=10)
-        self.bump_btn.grid(row=3, column=0, columnspan=2, padx=5, pady=(2, 4), sticky="w")
-        # Version label
-        ttk.Label(self.timer_frame, text=f"v{__version__}", font=("Arial", 8), foreground="grey").grid(row=0, column=6, padx=10, pady=2, sticky="e")
         self.timer_running = True  # Start timer immediately
         self.remaining = int(self.interval_var.get())
         self._scanning = False  # Flag to prevent calendar updates during scanning
@@ -259,16 +234,7 @@ class MainApp(ttk.Frame):
                                         width=40, height=2, anchor="nw", justify="left",
                                         relief="flat")
         self.scan_status_label.pack(fill="x", pady=5, side="top")
-
-        # --- Scan log: live record of what each scan detected ---
-        from tkinter.scrolledtext import ScrolledText
-        ttk.Label(self.left_panel, text="Scan Log:", font=("Arial", 8, "bold")).pack(anchor="w", pady=(2, 0), side="top")
-        self.scan_log = ScrolledText(
-            self.left_panel, width=36, height=9,
-            font=("Courier", 7), state="disabled",
-            wrap="word", relief="sunken", borderwidth=1)
-        self.scan_log.pack(fill="x", pady=(0, 4), side="top")
-
+        
         # Navigation controls in left panel
         nav_frame = ttk.Frame(self.left_panel)
         nav_frame.pack(fill="x", pady=5, side="top")
@@ -457,7 +423,8 @@ class MainApp(ttk.Frame):
         recording_thread.start()
         
         self.scan_status_var.set("Pausing scanning and refreshing Teams Shifts app...")
-        # Pause scanning
+        # Pause scanning AND mark reset in progress so any concurrent scan aborts immediately
+        self._midnight_reset_in_progress = True
         self.timer_running = False
         self.scanning_on = False
         self._scanning = False
@@ -547,6 +514,8 @@ class MainApp(ttk.Frame):
                     self.start_countdown()
      
                 self.after(delay_seconds * 1000, resume_at_5am)  # Convert to milliseconds
+                # Clear the reset flag only after scheduling the 5am resume
+                self._midnight_reset_in_progress = False
                 return
             except Exception as e:
                 import traceback
@@ -848,6 +817,12 @@ class MainApp(ttk.Frame):
         """
         The actual scan implementation, called from a background thread.
         """
+        # Hard abort if a midnight reset is in progress — scanning during a reload
+        # is what caused false October alerts at 00:04 (Teams showing stale data).
+        if getattr(self, '_midnight_reset_in_progress', False):
+            print("[Scan] Midnight reset in progress — aborting scan to avoid false detections.")
+            return
+
         from automation import scan_four_months_with_automation
         from ocr_processing import extract_shifts_from_image
         from database import shift_exists, add_shift, get_availability_for_date, is_shift_alerted
@@ -882,7 +857,6 @@ class MainApp(ttk.Frame):
         # Track all found shifts per (year, month)
         found_open_shifts_by_month = {}
         found_booked_shifts_by_month = {}
-        found_unavail_shifts_by_month = {}
 
         def ocr_and_store(image_path, year, month):
             # (Screenshot cleanup is now handled at the start of manual_scan, not here)
@@ -898,7 +872,6 @@ class MainApp(ttk.Frame):
             processed_dates_this_month = set()
             open_dates_this_month = set()     # Track open shifts found in current scan
             booked_dates_this_month = set()   # Track booked shifts found in current scan
-            unavail_dates_this_month = set()  # Track unavailable shifts found in current scan
             for date_str, shift_info in all_shifts_map.items():
                 shift_type = shift_info['type'] # 'open' or 'booked'
                 shift_count = shift_info.get('count', 1)  # Get the count from OCR detection
@@ -943,22 +916,19 @@ class MainApp(ttk.Frame):
                             matched_dates_set.add(date_str)
                 elif shift_type == 'booked':
                     booked_dates_this_month.add(date_str)  # Track booked shifts found in current scan
-
+                    
                     # FIXED: Always call add_shift to ensure count is updated even for existing booked shifts
                     was_new_booking = not shift_exists(date_str, 'booked')
                     add_shift(date_str, 'booked', shift_count)  # This handles open->booked conversion and count updates
-
+                    
                     if was_new_booking:
                         new_booked_shifts_this_month += 1
                         total_new_shifts += 1 # Count new booked shifts
-
+                        
                         # If it was previously marked as 'open' in the DB, add_shift already handled the conversion
                         if shift_exists(date_str, 'open'):
-                            print(f"[GUI] Converted shift on {date_str} from open to booked.")
-                elif shift_type == 'unavailable':
-                    unavail_dates_this_month.add(date_str)
-                    if not shift_exists(date_str, 'unavailable'):
-                        add_shift(date_str, 'unavailable')
+                            print(f"[GUI] Converted shift on {date_str} from open to booked.") 
+                                 # We might need to remove the 'open' one if it exists from a previous iteration of this scan.
 
             # Update status message
             scan_time = pydatetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -972,15 +942,9 @@ class MainApp(ttk.Frame):
             self.after(0, lambda s=status_msg.strip(): self.scan_status_var.set(s))
             
             # Track open shifts for this month for later cleanup (this might need adjustment)
-            # Store open, booked and unavailable shifts found during current scan for cleanup
+            # Store both open and booked shifts found during current scan for cleanup
             found_open_shifts_by_month[(year, month)] = open_dates_this_month
             found_booked_shifts_by_month[(year, month)] = booked_dates_this_month
-            found_unavail_shifts_by_month[(year, month)] = unavail_dates_this_month
-            # Fire the scan log update immediately so the user sees results as each month completes
-            _o = set(open_dates_this_month)
-            _b = set(booked_dates_this_month)
-            _u = set(unavail_dates_this_month)
-            self.after(0, lambda y=year, m=month, o=_o, b=_b, u=_u: self.log_scan_result(y, m, o, b, u))
 
             # Use the top-level import for pydatetime (do not re-import locally)
             _status = status_msg.strip()
@@ -1116,12 +1080,10 @@ class MainApp(ttk.Frame):
                 # Get the shifts found for this month (empty set if none found)
                 open_shifts_found = found_open_shifts_by_month.get((year, month), set())
                 booked_shifts_found = found_booked_shifts_by_month.get((year, month), set())
-                unavail_shifts_found = found_unavail_shifts_by_month.get((year, month), set())
-
+                
                 # Clean up stale shifts for this month
                 delete_shifts_not_in_list(year, month, open_shifts_found, shift_type='open')
                 delete_shifts_not_in_list(year, month, booked_shifts_found, shift_type='booked')
-                delete_shifts_not_in_list(year, month, unavail_shifts_found, shift_type='unavailable')
 
             current_datetime = pydatetime.datetime.now()
 
@@ -1232,43 +1194,7 @@ class MainApp(ttk.Frame):
             
     def update_countdown_label(self):
         self.countdown_var.set(f"Countdown: {self.remaining}s")
-
-    def bump_countdown(self):
-        """Subtract 10s from the remaining countdown. Only applies if result would be >= 10."""
-        if self.remaining - 10 >= 10:
-            self.remaining -= 10
-            self.update_countdown_label()
-
-    def log_scan_result(self, year, month, open_dates, booked_dates, unavail_dates):
-        """Prepend a timestamped detection summary to the scan log widget."""
-        now = pydatetime.datetime.now().strftime('%H:%M:%S')
-        month_name = calendar.month_name[month]
-        lines = [f"[{now}] {month_name} {year}"]
-        if open_dates:
-            days = ', '.join(str(int(d.split('-')[2])) for d in sorted(open_dates))
-            lines.append(f"  open:    {days}")
-        if booked_dates:
-            days = ', '.join(str(int(d.split('-')[2])) for d in sorted(booked_dates))
-            lines.append(f"  booked:  {days}")
-        if unavail_dates:
-            days = ', '.join(str(int(d.split('-')[2])) for d in sorted(unavail_dates))
-            lines.append(f"  unavail: {days}")
-        if not open_dates and not booked_dates and not unavail_dates:
-            lines.append("  (nothing found)")
-        entry = '\n'.join(lines) + '\n\n'
-        try:
-            self.scan_log.config(state="normal")
-            self.scan_log.insert("1.0", entry)
-            # Trim to keep the most recent 15 scan entries
-            content = self.scan_log.get("1.0", "end-1c")
-            parts = content.split('\n\n')
-            if len(parts) > 15:
-                self.scan_log.delete("1.0", "end")
-                self.scan_log.insert("1.0", '\n\n'.join(parts[:15]))
-            self.scan_log.config(state="disabled")
-        except Exception:
-            pass
-
+        
     def prev_month(self):
         prev = self.current_date - timedelta(days=1)
         self.current_date = prev.replace(day=1)        # Force refresh even during scanning to prevent disappearing calendar
@@ -1328,7 +1254,7 @@ class MainApp(ttk.Frame):
 
 
 def launch_gui(root, config):
-    root.title(f"Teams Shift Database and Alert  v{__version__}")
+    root.title("Teams Shift Database and Alert")
     # Restore window size and position if available
     import sqlite3
     import os as _os

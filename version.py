@@ -3,84 +3,36 @@ Teams Shift Monitor Application
 Version tracking and changelog
 """
 
-__version__ = "5.1.0"
-__version_date__ = "2026-06-22"
+__version__ = "1.1.4"
+__version_date__ = "2026-07-08"
 
 # Changelog
 CHANGELOG = """
-Version 5.1.0 (2026-06-22) - FIX: Eliminate false unavailable entries in all months
-====================================================================================
-ROOT CAUSES FIXED:
-  1. database.py add_shift(): unavailable now blocked if date already booked
-     - also clears any stale unavailable row when a booked row is added
-  2. gui.py scan cleanup loop: delete_shifts_not_in_list now called for
-     unavailable type after every scan (was only called for open/booked)
-     - found_unavail_shifts_by_month dict added to track per-month sets
-  3. DB repair: removed all 19 stale unavailable rows written before v5.0.4
-     detection fix (pre-2026-06-22 23:07) including the Aug-25 booked/unavail
-     conflict. DB now contains only verified open and booked shifts.
-  4. Post-VS2026 health check passed: Python 3.13.4, cv2 4.11.0, tesseract
-     5.5.0, tkinter 8.6, numpy 2.3, PIL 11.2, pywinauto 0.6.9 - all OK.
-     health_report.txt written to app directory.
+Version 1.1.4 (2026-07-08) - MIDNIGHT RESET FALSE-POSITIVE FIX
+===============================================================
+🐛 FIX: Spurious shift alerts generated immediately after midnight reset
+   - Root cause 1 (race condition): countdown auto_scan() could fire while
+     refresh_teams_shifts() was still navigating Teams away, causing a scan
+     to run against a partially-loaded or stale calendar view.
+   - Root cause 2 (month OCR bypass): when extract_month_year_from_image()
+     returned None (Teams loading), the scan silently used the *expected*
+     month (e.g. October) even if Teams was still showing August, assigning
+     wrong-month day numbers to the database.
+   - Root cause 3 (colour fallback): blocks with H≈103 (teal/cyan, NOT
+     orange) and S>40 fell through to a default 'A' (available) rule,
+     recording transient Teams UI elements as open shifts.
+   - Evidence: Oct 4, Oct 17, Oct 26 inserted at 00:04:25 on 2026-07-08;
+     Oct 17 matched availability → false email alert sent.
 
-Version 5.0.5 (2026-06-21) - FEATURE: Detection overlays and scan log
-=======================================================================
-🆕 NEW: Cell type badge inside every coloured calendar cell
-   - open cells show "open (N)" with count
-   - booked cells show "booked"
-   - unavailable cells show "unavail"
-🆕 NEW: Live scan log panel in the left sidebar
-   - Shows timestamped detection results for each scanned month
-   - Lists which day numbers were found as open / booked / unavail
-   - Scrollable, keeps last 15 scan entries
-   - Updates immediately as each month finishes scanning
+✅ Fixes Applied:
+   - gui.py: _midnight_reset_in_progress flag set before any reset action;
+     _run_manual_scan aborts immediately when flag is set (closes race).
+   - automation.py: month scan now SKIPPED (continue) when month label OCR
+     fails, instead of proceeding with expected month value.
+   - open_shift_ocr.py: default colour fallback changed from 'A' to 'U';
+     only genuinely orange blocks (orange_ratio > 0.30) or OCR-confirmed
+     'A' badges are treated as open shifts.
 
-Version 5.0.4 (2026-06-21) - FIX: Correct unavailable block detection
-=======================================================================
-🔧 FIX: U... blocks (June 22-26) were never detected - band was only 80px tall
-   - bookedshifts marker at y=410 but U... blocks at y=490 -> band extended to bottom of image
-🔧 FIX: Grey mask V ceiling raised 200->220 (U... blocks have V=215, previously excluded)
-🔧 FIX: Empty calendar grid cells (V=240, fill=6%) rejected via 20% fill-ratio guard
-🔧 FIX: Reverted failed OCR-based U detection (text invisible against grey background)
-   - Classification is now purely colour-based: V=100-220 neutral grey = unavailable
-   - A... blocks are V=255 (white), empty cells V=240 - both correctly excluded
-
-Version 5.0.3 (2026-06-21) - PATCH: Use OCR text to confirm Unavailable blocks
-=================================================================================
-🔧 FIX: Grey blocks misclassified as 'unavailable' when they are actually 'A...' (Available)
-   - Root cause: colour mask alone cannot distinguish A... from U... (both are grey)
-   - Fix: for any grey-coloured contour, OCR the block text; only accept as 'unavailable'
-     if the first character is 'U'. All other grey blocks (A..., Ea..., etc.) are skipped.
-   - Removed wrong 2026-06-13 unavailable record from database
-
-Version 5.0.2 (2026-06-21) - FEATURE: Bump -10 countdown button
-=================================================================
-🆕 NEW: "Bump -10" button below the countdown timer
-   - Clicking the button subtracts 10 seconds from the remaining scan countdown
-   - Only applies if the result would be >= 10 seconds (no-op otherwise)
-   - Allows fast-forwarding to the next scan without waiting
-
-Version 5.0.1 (2026-06-21) - PATCH: Fix unavailable detection false positives
-=================================================================================
-🔧 FIX: Blue-grey booked shifts (A...) were misclassified as unavailable
-   - Root cause: Grey HSV saturation ceiling was 80 — too broad
-   - Fix: Tightened to S ≤ 30, V 100–200 (neutral grey only)
-   - Booked shift blocks have Teams blue-grey tint (S ≈30–50) — now excluded
-   - Only truly neutral U... blocks (S ≈0–15) classified as unavailable
-
-Version 5.0.0 (2026-06-21) - UNAVAILABLE SHIFT DETECTION
-=========================================================
-🆕 NEW: Detect and display Teams 'Unavailable' blocks
-   - Grey blocks (U...) in the shifts calendar are now correctly identified
-   - Previously misclassified as booked; now stored as 'unavailable' type
-   - Calendar cells display with grey (#C0C0C0) background
-   - No false alerts triggered for unavailable days
-   - booked_shift_ocr.py: per-contour HSV classification (coloured=booked, grey=unavailable)
-
-🆕 NEW: Version label visible in app UI
-   - Version shown in top-right of control bar and in window title
-
-🔧 FIX: ocr_processing.py indentation corruption repaired
 Version 1.1.2 (2025-01-27) - MIDNIGHT RESET TIMING IMPROVEMENTS
 ================================================================
 ?? IMPROVEMENTS: Midnight Reset Stability & Reliability

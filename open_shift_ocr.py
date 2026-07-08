@@ -9,6 +9,109 @@ import pytesseract
 import calendar
 from datetime import datetime
 
+
+def _check_block_availability(image, block_rect, image_path_for_debug=None, block_index=0):
+    """
+    Determines whether a shift block shows 'A' (available) or 'U' (unavailable).
+
+    In Teams Shifts, each open-shift tile carries an availability status:
+      - Available  ('A'): bright orange tile  (HSV H ≈ 5-30, S ≥ 40)
+      - Unavailable('U'): desaturated lavender/grey tile (S < 40)
+
+    Detection uses two stages:
+      1. HSV colour analysis (primary, reliable)
+      2. Tesseract OCR on the block content (secondary, as confirmation)
+
+    Returns: ('A', reason_str) or ('U', reason_str)
+    Always defaults to 'A' (available) when uncertain so no valid shifts are missed.
+    """
+    x, y, w, h = block_rect
+    img_h, img_w = image.shape[:2]
+    x1 = max(0, x)
+    y1 = max(0, y)
+    x2 = min(img_w, x + w)
+    y2 = min(img_h, y + h)
+
+    if x2 <= x1 or y2 <= y1 or (x2 - x1) < 2 or (y2 - y1) < 2:
+        return 'A', 'empty_crop_default_available'
+
+    block_img = image[y1:y2, x1:x2]
+    if block_img.size == 0:
+        return 'A', 'empty_block_default_available'
+
+    # --- Stage 1: HSV colour analysis ---
+    block_hsv = cv2.cvtColor(block_img, cv2.COLOR_BGR2HSV)
+    mean_hsv = block_hsv.mean(axis=(0, 1))
+    mean_s = float(mean_hsv[1])   # Saturation channel
+
+    # Orange ratio: fraction of pixels that are clearly orange (available 'A' shade)
+    lower_orange = np.array([5, 40, 100])
+    upper_orange = np.array([30, 255, 255])
+    orange_mask = cv2.inRange(block_hsv, lower_orange, upper_orange)
+    total_pixels = float(block_img.shape[0] * block_img.shape[1])
+    orange_ratio = float(orange_mask.sum()) / (255.0 * total_pixels) if total_pixels > 0 else 0.0
+
+    logging.info(f"[AvailCheck] Block {block_index} ({x},{y},{w},{h}): "
+                 f"mean_S={mean_s:.1f}, orange_ratio={orange_ratio:.2f}")
+
+    # --- Stage 2: OCR for explicit 'A' or 'U' text inside the block ---
+    ocr_badge = ''
+    try:
+        gray = cv2.cvtColor(block_img, cv2.COLOR_BGR2GRAY)
+        scale = max(4, min(8, 120 // max(h, 1)))
+        scaled = cv2.resize(gray, (w * scale, h * scale), interpolation=cv2.INTER_CUBIC)
+        _, thresh_normal = cv2.threshold(scaled, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        thresh_inv = cv2.bitwise_not(thresh_normal)
+        for img_var in [thresh_normal, thresh_inv]:
+            for psm in [10, 7, 8]:
+                t = pytesseract.image_to_string(
+                    img_var,
+                    config=f'--psm {psm} -c tessedit_char_whitelist=AaUu'
+                ).strip().upper()
+                if t in ('A', 'U'):
+                    ocr_badge = t
+                    break
+            if ocr_badge:
+                break
+        if image_path_for_debug:
+            dbg = image_path_for_debug.replace('.png', f'_avail_block_{block_index}.png')
+            cv2.imwrite(dbg, cv2.resize(block_img, (w * 4, h * 4), interpolation=cv2.INTER_NEAREST))
+    except Exception as e:
+        logging.debug(f"[AvailCheck] Block {block_index} OCR failed: {e}")
+
+    if ocr_badge:
+        logging.info(f"[AvailCheck] Block {block_index}: OCR badge='{ocr_badge}'")
+
+    # --- Decision (most specific rule wins) ---
+    # Rule 1: clearly orange → available
+    if orange_ratio > 0.30:
+        logging.info(f"[AvailCheck] Block {block_index}: AVAILABLE (A) – orange colour (ratio={orange_ratio:.2f})")
+        return 'A', f'orange_color({orange_ratio:.2f})'
+
+    # Rule 2: desaturated (lavender/grey) → unavailable
+    if mean_s < 40:
+        logging.info(f"[AvailCheck] Block {block_index}: UNAVAILABLE (U) – low saturation (S={mean_s:.1f})")
+        return 'U', f'low_saturation(S={mean_s:.1f})'
+
+    # Rule 3: OCR-confirmed badge
+    if ocr_badge == 'U':
+        logging.info(f"[AvailCheck] Block {block_index}: UNAVAILABLE (U) – OCR detected 'U'")
+        return 'U', 'ocr_u'
+    if ocr_badge == 'A':
+        logging.info(f"[AvailCheck] Block {block_index}: AVAILABLE (A) – OCR detected 'A'")
+        return 'A', 'ocr_a'
+
+    # Default: treat as UNAVAILABLE.
+    # Previously this defaulted to 'A' to avoid missing valid shifts, but that caused
+    # non-orange UI elements (H≈103, teal/cyan) to be recorded as open shifts – the
+    # source of the false October alerts after the midnight reset.
+    # Genuine open-shift tiles are clearly orange (Rule 1 catches them). Any block that
+    # is saturated but not orange is more likely to be a booked/unavailable indicator or
+    # a Teams loading artefact, so it should be excluded.
+    logging.info(f"[AvailCheck] Block {block_index}: UNAVAILABLE (U) – not orange, no OCR badge (H≈{block_hsv[:,:,0].mean():.0f}, S={mean_s:.1f})")
+    return 'U', f'not_orange_no_badge(S={mean_s:.1f})'
+
+
 def detect_open_shifts(proc_image, image, image_path, year, month):
     """
     Detect open shifts by extracting the dynamic region between the 'Open shifts' and 'Booked shifts' markers,
@@ -90,6 +193,28 @@ def detect_open_shifts(proc_image, image, image_path, year, month):
         if rect_hash not in seen:
             unique_blocks.append(block)
             seen.add(rect_hash)
+
+    # --- Step 3.5: Filter blocks by availability (A = available, U = unavailable) ---
+    # Each shift tile in Teams shows either an 'A' (available, bright orange) or
+    # 'U' (unavailable, desaturated lavender/grey) indicator.  Only keep 'A' blocks.
+    filtered_blocks = []
+    for i, block in enumerate(unique_blocks):
+        badge, reason = _check_block_availability(image, block['rect'], image_path, i)
+        if badge == 'U':
+            bx, by, bw, bh = block['rect']
+            logging.info(
+                f"[OpenShifts] SKIPPING unavailable (U) block {i} at "
+                f"({bx},{by},{bw},{bh}) – {reason}"
+            )
+        else:
+            filtered_blocks.append(block)
+    if len(unique_blocks) != len(filtered_blocks):
+        skipped = len(unique_blocks) - len(filtered_blocks)
+        logging.info(
+            f"[OpenShifts] Availability filter: {skipped} unavailable block(s) removed, "
+            f"{len(filtered_blocks)} available block(s) kept."
+        )
+    unique_blocks = filtered_blocks
 
     # --- Step 4: For each unique block, extract date and count ---
     DATE_HEADER_Y_OFFSET = 185  # Adjusted offset to properly capture date headers

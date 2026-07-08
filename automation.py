@@ -391,7 +391,21 @@ Time: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"""
                 
                 scan_month, scan_year = ocr_month, ocr_year
             else:
-                _automation_log("[WARNING] Could not OCR month/year from screenshot. Using expected values.")
+                # SAFETY: If we cannot confirm which month is on screen, do NOT scan it.
+                # Proceeding with the expected month when Teams may be loading or on the
+                # wrong page is exactly what caused false October alerts at midnight.
+                _automation_log(
+                    f"[WARNING] Could not OCR month/year from screenshot for expected "
+                    f"{calendar.month_name[scan_month]} {scan_year}. "
+                    f"SKIPPING this month to avoid recording shifts against the wrong month."
+                )
+                if i < 3:
+                    time.sleep(0.2)
+                    if not find_and_click_right_arrow():
+                        _automation_log("Could not navigate past unconfirmed month. Stopping scan early.")
+                        break
+                    time.sleep(1.5)
+                continue
             _automation_log(f"Scanning {calendar.month_name[scan_month]} {scan_year}")
             try:
                 ocr_func(screenshot_path, scan_year, scan_month)
