@@ -33,14 +33,11 @@ def detect_booked_shifts(proc_image, image, image_path, year, month):
         logging.info("Booked shifts marker not found with high confidence.")
         return {}
 
-    # Get the y position of the marker.
-    # The marker (bookedshifts.png) matches the section header, but the actual
-    # shift blocks (booked orange AND unavailable grey U... rows) for all staff
-    # can be many hundreds of pixels below it.  Extend the band all the way to
-    # the bottom of the image so nothing is missed.
+    # Get the y position of the marker
     marker_x, marker_y = max_loc
+    band_height = 80
     band_y1 = max(0, marker_y - 10)
-    band_y2 = image.shape[0]
+    band_y2 = min(band_y1 + band_height, image.shape[0])
     band = image[band_y1:band_y2, :, :]
 
     # Save the band for debug/inspection (like open_shift_ocr)
@@ -66,57 +63,38 @@ def detect_booked_shifts(proc_image, image, image_path, year, month):
     lower_pink = np.array([140, 20, 150])
     upper_pink = np.array([170, 120, 255])
     mask_pink = cv2.inRange(hsv_band, lower_pink, upper_pink)
-    # Coloured mask (orange + red + pink) = booked
-    mask_coloured = cv2.bitwise_or(mask_orange, mask_red)
-    mask_coloured = cv2.bitwise_or(mask_coloured, mask_pink)
-    # Grey mask for Teams 'Unavailable' blocks.
-    # Real U... blocks are Teams #D7D7D7 grey  -> HSV V≈215, S=0
-    # Teams grid/row background is #C0C0C0 grey -> HSV V≈192, S=0   (false positive)
-    # Empty calendar cells have V≈240 (near-white)                    (already excluded)
-    # A... Available blocks are V=255 (white)                         (already excluded)
-    # Narrow band V=205-220 cleanly captures only the V=215 U... blocks.
-    lower_gray = np.array([0,   0, 205])
-    upper_gray = np.array([180, 30, 220])
-    mask_gray = cv2.inRange(hsv_band, lower_gray, upper_gray)
-    # Remove coloured pixels from grey mask to avoid overlap
-    mask_gray = cv2.bitwise_and(mask_gray, cv2.bitwise_not(mask_coloured))
-    # Combined mask for contour detection
-    mask_combined = cv2.bitwise_or(mask_coloured, mask_gray)
+    # Combine all masks
+    mask_combined = cv2.bitwise_or(mask_orange, mask_red)
+    mask_combined = cv2.bitwise_or(mask_combined, mask_pink)
 
     # Find contours of combined mask
     contours, _ = cv2.findContours(mask_combined, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     orange_blocks = []
+    min_block_width = 20
+    min_block_height = 20
+    max_block_width = 90
+    max_aspect_ratio = 3.0
     for cnt in contours:
         x, y, w, h = cv2.boundingRect(cnt)
-        # Basic size guard: real shift blocks are always taller than ~40px and narrower than ~150px.
-        # Thin horizontal strips (h<40) are row-separator lines, not shift blocks.
-        if w < 30 or h < 40 or w > 150:
-            continue
-        block_top = band_y1 + y
-        cnt_mask = np.zeros(mask_coloured.shape, dtype=np.uint8)
-        cv2.drawContours(cnt_mask, [cnt], -1, 255, cv2.FILLED)
-        coloured_px = cv2.countNonZero(cv2.bitwise_and(mask_coloured, cnt_mask))
-        gray_px = cv2.countNonZero(cv2.bitwise_and(mask_gray, cnt_mask))
-        if coloured_px >= gray_px:
-            block_type = 'booked'
+        contour_area = cv2.contourArea(cnt)
+        fill_ratio = contour_area / float(w * h) if w and h else 0
+        aspect_ratio = w / float(h) if h else 0
+        if (min_block_width <= w <= max_block_width and h >= min_block_height
+                and aspect_ratio <= max_aspect_ratio and fill_ratio >= 0.20):
+            block_top = band_y1 + y
+            block_info = {'rect': (x, block_top, w, h), 'fill_ratio': fill_ratio}
+            orange_blocks.append(block_info)
         else:
-            # Grey block: must have solid grey fill (>= 20% of bounding area).
-            # Empty calendar grid cells are caught only by their thin border pixels
-            # (~6% fill) and are rejected here.  Genuine U... blocks fill ~97%.
-            fill_ratio = gray_px / (w * h)
-            if fill_ratio < 0.20:
-                logging.info(f"[BOOKED OCR] Grey border-only contour at ({x},{block_top}) fill={fill_ratio:.2f} - skipping")
-                continue
-            block_type = 'unavailable'
-        logging.info(f"[BOOKED OCR] Block at ({x},{block_top}) coloured_px={coloured_px} gray_px={gray_px} type={block_type}")
-        block_info = {'rect': (x, block_top, w, h), 'block_type': block_type}
-        orange_blocks.append(block_info)
+            logging.debug(
+                "Ignoring non-tile booked contour at (%d,%d,%d,%d), fill=%.2f, aspect=%.2f",
+                x, band_y1 + y, w, h, fill_ratio, aspect_ratio,
+            )
     # Date region extraction and OCR
     # --- Use the same date header Y as open shifts for robust date extraction ---
     # Try to find the open shift marker and use the same DATE_HEADER_Y_OFFSET as open_shift_ocr
     DATE_HEADER_Y_OFFSET = 195  # Final fine-tune for perfect date region alignment
     DATE_HEADER_HEIGHT = 25
-    DATE_HEADER_WIDTH = 60
+    DATE_HEADER_WIDTH = 40
     booked_date_regions_img = image.copy()
     openshifts_marker_path = os.path.join(os.path.dirname(__file__), 'openshifts.png')
     openshifts_marker = cv2.imread(openshifts_marker_path, cv2.IMREAD_UNCHANGED)
@@ -157,8 +135,17 @@ def detect_booked_shifts(proc_image, image, image_path, year, month):
         date_region_gray = cv2.cvtColor(date_region, cv2.COLOR_BGR2GRAY)
         # Scale up 2x for better OCR accuracy on small text
         scaled_region = cv2.resize(date_region_gray, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
-        day_text = pytesseract.image_to_string(scaled_region, config='--psm 7 digits').strip()
-        day_text = ''.join(c for c in day_text if c.isdigit())
+        ocr_reads = []
+        for psm in (7, 8):
+            raw_text = pytesseract.image_to_string(scaled_region, config=f'--psm {psm} digits').strip()
+            digits = ''.join(c for c in raw_text if c.isdigit())
+            if digits:
+                ocr_reads.append(digits)
+        unique_reads = set(ocr_reads)
+        if len(unique_reads) > 1:
+            logging.warning("[BOOKED OCR] Conflicting day reads for block %d: %s; ignoring block", i, sorted(unique_reads))
+            continue
+        day_text = ocr_reads[0] if ocr_reads else ""
         date_str = ""
         if day_text:
             try:
@@ -169,8 +156,13 @@ def detect_booked_shifts(proc_image, image, image_path, year, month):
                         date_str = date_obj.strftime("%d %b")
                         key = f'{year}-{month:02d}-{day:02d}'
                         result[key] = {
-                            'type': block['block_type'],
+                            'type': 'booked',
                             'coords': block['rect'],
+                            'evidence': {
+                                'date_crop': date_region_path,
+                                'day_reads': ocr_reads,
+                                'tile_fill_ratio': round(block['fill_ratio'], 3),
+                            },
                             'date': date_str,
                             'day': day,
                             'month': month,

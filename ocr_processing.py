@@ -120,11 +120,11 @@ def extract_shifts_from_image(image_path, year, month):
     all_shifts_map = {}
 
     # --- Open and Booked Shift Detection Logic moved to separate modules ---
-    from open_shift_ocr import detect_open_shifts
-    from booked_shift_ocr import detect_booked_shifts
+    from row_shift_ocr import detect_open_shifts_by_row
+    from personal_shift_ocr import detect_personal_assignments
 
-    logging.info("Calling detect_open_shifts module...")    
-    open_shifts = detect_open_shifts(proc_image, image, image_path, year_num, month_num)
+    logging.info("Calling row-based open shift detector...")
+    open_shifts = detect_open_shifts_by_row(image, image_path, year_num, month_num)
     # --- AGGREGATE open shift counts by date and print summary ---
     open_shift_counts = {k: v['count'] for k, v in open_shifts.items()}
     total_open_blocks = sum(open_shift_counts.values())
@@ -134,8 +134,14 @@ def extract_shifts_from_image(image_path, year, month):
     else:
         logging.info("[Open Shifts Summary] Total: 0 blocks")
     all_shifts_map = dict(open_shifts)
-    logging.info("Calling detect_booked_shifts module...")
-    booked_shifts = detect_booked_shifts(proc_image, image, image_path, year_num, month_num)
+    logging.info("Calling personal-row assignment detector...")
+    booked_shifts = detect_personal_assignments(image, image_path, year_num, month_num)
+    conflicting_dates = set(open_shifts).intersection(booked_shifts)
+    if conflicting_dates:
+        logging.info(
+            "Personal-row assignment takes precedence over open-row tile(s) on: %s",
+            ", ".join(sorted(conflicting_dates)),
+        )
     all_shifts_map.update(booked_shifts)
 
     # Don't log the technical details of shift map

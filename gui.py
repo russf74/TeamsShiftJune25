@@ -827,7 +827,7 @@ class MainApp(ttk.Frame):
 
         from automation import scan_four_months_with_automation
         from ocr_processing import extract_shifts_from_image
-        from database import shift_exists, add_shift, get_availability_for_date, is_shift_alerted
+        from database import get_availability_for_date, is_shift_alerted
         # get_shift_count import removed (function does not exist)
         import os
         import glob
@@ -890,47 +890,9 @@ class MainApp(ttk.Frame):
                 processed_dates_this_month.add(date_str)
 
                 if shift_type == 'open':
-                    open_dates_this_month.add(date_str)  # Track open shifts found in this scan
-                    
-                    # Check if it's already booked, if so, don't add as open
-                    if shift_exists(date_str, 'booked'):
-                        print(f"[GUI] Shift on {date_str} is already booked, not adding as open.")
-                        continue
-                    
-                    # FIXED: Always call add_shift to ensure count is updated even for existing shifts
-                    was_new_shift = not shift_exists(date_str, 'open')
-                    add_shift(date_str, 'open', shift_count)  # This will create new OR update existing count
-                    
-                    if was_new_shift:
-                        new_open_shifts_this_month += 1
-                        total_new_shifts += 1 # This counts all new shifts (open or booked)
-                    
-                    # Availability check for open shifts (both new and existing)
-                    availability = get_availability_for_date(date_str)
-                    is_already_booked_in_db = shift_exists(date_str, 'booked')
-                    
-                    # Additional safety check: ensure this shift hasn't been alerted before
-                    is_already_alerted = is_shift_alerted(date_str, 'open')
-                    
-                    if availability and availability.get('is_available') and not is_already_booked_in_db and not is_already_alerted:
-                        if date_str not in matched_dates_set: # matched_dates_set is for availability matches
-                            matched_dates.append(date_str)
-                            matched_dates_set.add(date_str)
+                    open_dates_this_month.add(date_str)
                 elif shift_type == 'booked':
-                    booked_dates_this_month.add(date_str)  # Track booked shifts found in current scan
-                    
-                    # FIXED: Always call add_shift to ensure count is updated even for existing booked shifts
-                    was_new_booking = not shift_exists(date_str, 'booked')
-                    add_shift(date_str, 'booked', shift_count)  # This handles open->booked conversion and count updates
-                    
-                    if was_new_booking:
-                        new_booked_shifts_this_month += 1
-                        total_new_shifts += 1 # Count new booked shifts
-                        
-                        # If it was previously marked as 'open' in the DB, add_shift already handled the conversion
-                        if shift_exists(date_str, 'open'):
-                            print(f"[GUI] Converted shift on {date_str} from open to booked.") 
-                                 # We might need to remove the 'open' one if it exists from a previous iteration of this scan.
+                    booked_dates_this_month.add(date_str)
 
             # Update status message
             scan_time = pydatetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -1061,8 +1023,10 @@ class MainApp(ttk.Frame):
 
             self._scanning = False
 
-            # --- Remove obsolete shifts from DB for ALL scanned months (not just ones with found shifts) ---
-            from database import delete_shifts_not_in_list
+            # Reconcile only months whose OCR callback completed. This distinguishes a
+            # healthy empty scan from a capture/navigation failure, so failed scans
+            # cannot remove existing shifts.
+            from database import reconcile_month_observations
             import datetime as pydatetime
             
             # Generate list of all months that were scanned (4 months starting from current)
@@ -1077,15 +1041,25 @@ class MainApp(ttk.Frame):
                     scan_year += 1
                 scanned_months.append((scan_year, scan_month))
             
-            # Run cleanup for ALL scanned months (whether shifts found or not)  
+            # Apply each complete month as one state transition.
             for year, month in scanned_months:
-                # Get the shifts found for this month (empty set if none found)
+                if (year, month) not in found_open_shifts_by_month or (year, month) not in found_booked_shifts_by_month:
+                    print(f"[Scan] Skipping reconciliation for {calendar.month_name[month]} {year}: no completed OCR result.")
+                    continue
                 open_shifts_found = found_open_shifts_by_month.get((year, month), set())
                 booked_shifts_found = found_booked_shifts_by_month.get((year, month), set())
-                
-                # Clean up stale shifts for this month
-                delete_shifts_not_in_list(year, month, open_shifts_found, shift_type='open')
-                delete_shifts_not_in_list(year, month, booked_shifts_found, shift_type='booked')
+                reconciliation = reconcile_month_observations(year, month, open_shifts_found, booked_shifts_found)
+                new_open_dates = reconciliation.get('new_open', [])
+                total_new_shifts += len(new_open_dates) + len(reconciliation.get('new_bookings', []))
+                for date_str in new_open_dates:
+                    availability = get_availability_for_date(date_str)
+                    if availability and availability.get('is_available') and not is_shift_alerted(date_str, 'open') and date_str not in matched_dates_set:
+                        matched_dates.append(date_str)
+                        matched_dates_set.add(date_str)
+                for date_str in reconciliation.get('new_bookings', []):
+                    import threading
+                    from email_alert import send_shift_confirmation_email
+                    threading.Thread(target=send_shift_confirmation_email, args=(date_str,), daemon=True).start()
 
             current_datetime = pydatetime.datetime.now()
 

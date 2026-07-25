@@ -300,18 +300,29 @@ def send_shift_confirmation_email(date_str):
         logger.error("Gmail credentials not set in config")
         raise Exception("Gmail user or app password not set in config.")
     
-    # Check if confirmation email already sent for this shift
+    # Atomically claim pending delivery. A sent flag represents actual SMTP success,
+    # not merely that a background worker was scheduled.
     conn = sqlite3.connect(config.get('db_path', 'shifts.db'))
     c = conn.cursor()
-    c.execute("SELECT confirmed_email_sent FROM shifts WHERE date = ? AND shift_type = 'booked'", (date_str,))
+    c.execute("SELECT confirmed_email_sent, COALESCE(email_status, 'not_required') FROM shifts WHERE date = ? AND shift_type = 'booked'", (date_str,))
     result = c.fetchone()
     
-    if result and result[0] == 1:
-        logger.warning(f"BLOCKED: Confirmation email already sent for {date_str} (confirmed_email_sent=1)")
+    if not result:
+        logger.warning(f"BLOCKED: No current booked shift exists for {date_str}")
         conn.close()
         return
+    if result[0] == 1 or result[1] == 'sent':
+        logger.warning(f"BLOCKED: Confirmation email already sent for {date_str}")
+        conn.close()
+        return
+    if result[1] == 'sending':
+        logger.warning(f"BLOCKED: Confirmation email delivery is already in progress for {date_str}")
+        conn.close()
+        return
+    c.execute("UPDATE shifts SET email_status = 'sending' WHERE date = ? AND shift_type = 'booked' AND COALESCE(email_status, 'not_required') != 'sending'", (date_str,))
+    conn.commit()
     
-    logger.info(f"Proceeding to send confirmation email for {date_str} (confirmed_email_sent={result[0] if result else 'NULL'})")
+    logger.info(f"Proceeding to send confirmation email for {date_str} (status={result[1]})")
     
     # Format the date for display
     try:
@@ -346,12 +357,15 @@ def send_shift_confirmation_email(date_str):
         yag.send(to=recipients, subject=subject, contents=''.join(body))
         
         # Mark confirmation email as sent
-        c.execute("UPDATE shifts SET confirmed_email_sent = 1 WHERE date = ? AND shift_type = 'booked'", (date_str,))
+        c.execute("UPDATE shifts SET confirmed_email_sent = 1, email_status = 'sent' WHERE date = ? AND shift_type = 'booked'", (date_str,))
+        c.execute("UPDATE shift_history SET confirmed_email_sent = 1 WHERE date = ? AND shift_type = 'booked'", (date_str,))
         conn.commit()
         
         logger.info(f"SUCCESS: Confirmation email sent for {date_str}, flag set to 1")
         
     except Exception as e:
+        c.execute("UPDATE shifts SET email_status = 'failed' WHERE date = ? AND shift_type = 'booked'", (date_str,))
+        conn.commit()
         logger.error(f"FAILED to send confirmation email for {date_str}: {e}")
         import traceback
         traceback.print_exc()
