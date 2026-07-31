@@ -6,157 +6,246 @@ from datetime import timedelta
 from database import get_shifts_for_month, get_availability_for_month, set_availability_for_date
 import datetime as pydatetime
 
-class CalendarView(ttk.Frame):
+# Fluent-inspired palette for the docked monitor strip under Teams.
+UI = {
+    "bg": "#E9EEF5",
+    "surface": "#FFFFFF",
+    "border": "#C9D4E0",
+    "text": "#1F2937",
+    "muted": "#5B6B7C",
+    "accent": "#0F6CBD",
+    "accent_hover": "#115EA3",
+    "danger": "#C50F1F",
+    "past": "#B6C2D0",
+    "past_text": "#111827",
+    "booked": "#93C5FD",
+    "open_avail": "#86EFAC",
+    "open_busy": "#FDBA74",
+    "empty": "#FFFFFF",
+    "empty_alt": "#F8FAFC",
+    "header": "#F3F6FA",
+    "today": "#0F6CBD",
+    "shadow": "#D5DEE8",
+}
+
+
+def _ui_font(size=9, weight="normal"):
+    # Prefer Segoe UI on Windows for a native professional look.
+    family = "Segoe UI"
+    if weight == "bold":
+        return (family, size, "bold")
+    return (family, size)
+
+
+class CalendarView(tk.Frame):
+    """
+    Canvas-drawn monthly grid.
+
+    Drawing on a single Canvas guarantees every week row scales into the
+    short docked strip under Teams (no clipped final weeks from widget packing).
+    Click a day cell to toggle availability (except past/booked days).
+    """
+
     def __init__(self, master, year, month, *args, **kwargs):
-        super().__init__(master, *args, **kwargs)
+        super().__init__(master, bg=UI["bg"], *args, **kwargs)
         self.year = year
         self.month = month
-        self.build_widgets()
+        self._hit = []  # list of (x1,y1,x2,y2,date_str,locked)
+        self._data = None
+
+        self.canvas = tk.Canvas(self, bg=UI["surface"], highlightthickness=1, highlightbackground=UI["border"], bd=0)
+        self.canvas.pack(fill="both", expand=True, padx=1, pady=1)
+        self.canvas.bind("<Configure>", self._on_resize)
+        self.canvas.bind("<Button-1>", self._on_click)
+        self.canvas.bind("<Motion>", self._on_motion)
+        self._load_data()
+        self.after_idle(self.redraw)
+
+    def _load_data(self):
+        shifts = get_shifts_for_month(self.year, self.month)
+        availability = get_availability_for_month(self.year, self.month)
+        shift_info = {
+            s["date"]: {
+                "type": s["shift_type"],
+                "alerted": s.get("alerted", 0),
+                "count": s.get("count", 1),
+            }
+            for s in shifts
+        }
+        available_dates = set(a["date"] for a in availability)
+        month_days = calendar.Calendar().monthdayscalendar(self.year, self.month)
+        self._data = {
+            "shift_info": shift_info,
+            "available_dates": available_dates,
+            "month_days": month_days,
+            "today": pydatetime.date.today(),
+        }
 
     def build_widgets(self):
-        try:
-            style = ttk.Style()
-            # Remove all children widgets to clear previous month's content
-            for widget in self.winfo_children():
-                widget.destroy()
-            self.update_idletasks()
-            cal = calendar.Calendar()
-            month_days = cal.monthdayscalendar(self.year, self.month)
-            header = f"{calendar.month_name[self.month]} {self.year}"
-            ttk.Label(self, text=header, font=("Arial", 12, "bold")).grid(row=0, column=0, columnspan=7, pady=(2, 2))
-            days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-            for idx, day in enumerate(days):
-                ttk.Label(self, text=day, font=("Arial", 9, "bold")).grid(row=1, column=idx, sticky="ew")
-            for col in range(7):
-                self.columnconfigure(col, weight=1)
-            # Fetch DB info
-            shifts = get_shifts_for_month(self.year, self.month)
-            availability = get_availability_for_month(self.year, self.month)
-            # Build shift info dict: {date: {type, alerted, count}}
-            shift_info = {}
-            for s in shifts:
-                shift_info[s['date']] = {'type': s['shift_type'], 'alerted': s.get('alerted', 0), 'count': s.get('count', 1)}
-            available_dates = set(a['date'] for a in availability)
-            for r, week in enumerate(month_days):
-                for c, day in enumerate(week):
-                    if day == 0:
-                        ttk.Label(self, text="").grid(row=r+2, column=c)
-                    else:
-                        date_str = f"{self.year}-{self.month:02d}-{day:02d}"
-                        shift = shift_info.get(date_str)
-                        is_available = date_str in available_dates
-                        # If the shift is booked, force is_available to False (untick)
-                        if shift and shift['type'] == 'booked':
-                            is_available = False
-                        # Check if date is in the past
-                        today = pydatetime.date.today()
-                        cell_date = pydatetime.date(self.year, self.month, day)
-                        is_past = cell_date < today
-                        # Color logic:
-                        # Booked: blue
-                        # Open+available+not emailed: green
-                        # Open+available+emailed: purple
-                        # Open+not available: orange
-                        # Past: dark grey
-                        if is_past:
-                            frame_style = None
-                            label_style = None
-                            cb_style = None
-                            frame = tk.Frame(self, bg="#888888", highlightbackground="#888", highlightthickness=1)
-                            frame.grid(row=r+2, column=c, padx=1, pady=1, sticky="nsew")
-                            label = tk.Label(frame, text=str(day), bg="#888888", fg="#cccccc", font=("Arial", 9))
-                            label.pack()
-                            spacer = tk.Label(frame, text=" ", width=4, bg="#888888", font=("Arial", 8))
-                            spacer.pack()
-                            cb = ttk.Checkbutton(frame, text="", state="disabled")
-                            cb.pack(anchor="center")
-                            continue
-                        elif shift and shift['type'] == 'booked':
-                            frame_style = "Blue.TFrame"
-                            label_style = "Blue.TLabel"
-                            cb_style = "Blue.TCheckbutton"
-                        elif shift and shift['type'] == 'open':
-                            if is_available:
-                                # Always green for open+available, regardless of alerted status
-                                frame_style = "Green.TFrame"
-                                label_style = "Green.TLabel"
-                                cb_style = "Green.TCheckbutton"
-                            else:
-                                # Open shift exists, but not available: always orange
-                                frame_style = "Orange.TFrame"
-                                label_style = "Orange.TLabel"
-                                cb_style = "Orange.TCheckbutton"
-                        else:
-                            frame_style = None
-                            label_style = None
-                            cb_style = None
+        # Compatibility with older refresh path that called build_widgets().
+        self._load_data()
+        self.redraw()
 
-                        # Use tk.Frame for colored backgrounds to avoid ttk style bleed-through
-                        if frame_style:
-                            frame = tk.Frame(self, bg=style.lookup(frame_style, 'background'), highlightbackground="#888", highlightthickness=1)
-                        else:
-                            frame = ttk.Frame(self, borderwidth=1, relief="solid")
-                        frame.grid(row=r+2, column=c, padx=1, pady=1, sticky="nsew")
-                        # Use tk.Label for colored backgrounds
-                        if label_style:
-                            label = tk.Label(frame, text=str(day), bg=style.lookup(label_style, 'background'), font=("Arial", 9))
-                        else:
-                            label = ttk.Label(frame, text=str(day), font=("Arial", 9))
-                        label.pack()
-                        var = tk.BooleanVar(value=is_available)
-                        # --- Show open shift count in the middle spacer ---
-                        count_text = " "
-                        if shift and shift['type'] == 'open':
-                            count = shift.get('count', 1)
-                            if count > 0:
-                                count_text = f"({count})"
-                        spacer = tk.Label(
-                            frame,
-                            text=count_text,
-                            width=4,
-                            bg=style.lookup(label_style, 'background') if label_style else None,
-                            fg="#333",
-                            font=("Arial", 8),
-                        )
-                        spacer.pack()
-                        if cb_style:
-                            cb = ttk.Checkbutton(frame, text="", variable=var,
-                                command=lambda d=date_str, v=var: set_availability_for_date(d, v.get()), style=cb_style)
-                            cb.pack(anchor="center")
-                        else:
-                            cb = ttk.Checkbutton(frame, text="", variable=var,
-                                command=lambda d=date_str, v=var: set_availability_for_date(d, v.get()))
-                            cb.pack(anchor="center")
+    def _on_resize(self, _event=None):
+        self.redraw()
 
-            # --- Display shift counts in calendar cells ---
-            # Use self.year and self.month, and use the top-level import
-            shift_counts = {}
-            for shift in shifts:
-                if shift['shift_type'] == 'open':
-                    if shift['date'] not in shift_counts:
-                        shift_counts[shift['date']] = shift.get('count', 1)
-                    else:
-                        shift_counts[shift['date']] += shift.get('count', 1)
-            # Update calendar cells with shift counts (placeholder logic)
-            for day in range(1, calendar.monthrange(self.year, self.month)[1] + 1):
+    def _on_motion(self, event):
+        for x1, y1, x2, y2, _date_str, locked in self._hit:
+            if x1 <= event.x <= x2 and y1 <= event.y <= y2:
+                self.canvas.configure(cursor="arrow" if locked else "hand2")
+                return
+        self.canvas.configure(cursor="arrow")
+
+    def _on_click(self, event):
+        for x1, y1, x2, y2, date_str, locked in self._hit:
+            if x1 <= event.x <= x2 and y1 <= event.y <= y2:
+                if locked:
+                    return
+                is_avail = date_str in self._data["available_dates"]
+                new_val = not is_avail
+                try:
+                    set_availability_for_date(date_str, new_val)
+                except Exception as e:
+                    print(f"[CalendarView] Failed saving availability for {date_str}: {e}")
+                    return
+                self._load_data()
+                self.redraw()
+                return
+
+    def redraw(self):
+        if not self._data:
+            return
+        c = self.canvas
+        w = max(c.winfo_width(), 10)
+        h = max(c.winfo_height(), 10)
+        c.delete("all")
+        self._hit = []
+
+        # Layout metrics — compact enough for the short docked strip.
+        pad = 2
+        header_h = 18
+        dow_h = 14
+        grid_top = pad + header_h + dow_h
+        grid_bottom = h - pad
+        grid_left = pad
+        grid_right = w - pad
+        grid_w = max(10, grid_right - grid_left)
+        grid_h = max(10, grid_bottom - grid_top)
+
+        month_days = self._data["month_days"]
+        weeks = len(month_days) if month_days else 5
+        weeks = max(4, weeks)
+        cell_w = grid_w / 7.0
+        cell_h = grid_h / float(weeks)
+
+        # Card background + header
+        c.create_rectangle(0, 0, w, h, fill=UI["surface"], outline="")
+        c.create_rectangle(0, 0, w, grid_top - 1, fill=UI["header"], outline="")
+        c.create_text(
+            pad + 8,
+            pad + header_h / 2,
+            anchor="w",
+            text=f"{calendar.month_name[self.month]} {self.year}",
+            fill=UI["text"],
+            font=_ui_font(10, "bold"),
+        )
+        # Weekday labels aligned to columns
+        for i, name in enumerate(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]):
+            cx = grid_left + cell_w * i + cell_w / 2
+            c.create_text(
+                cx,
+                pad + header_h + dow_h / 2 - 1,
+                text=name,
+                fill=UI["muted"],
+                font=_ui_font(8, "bold"),
+            )
+
+        shift_info = self._data["shift_info"]
+        available_dates = self._data["available_dates"]
+        today = self._data["today"]
+
+        for r, week in enumerate(month_days):
+            for col, day in enumerate(week):
+                x1 = grid_left + cell_w * col + 0.5
+                y1 = grid_top + cell_h * r + 0.5
+                x2 = grid_left + cell_w * (col + 1) - 1.5
+                y2 = grid_top + cell_h * (r + 1) - 1.5
+
+                if day == 0:
+                    c.create_rectangle(x1, y1, x2, y2, fill=UI["header"], outline=UI["border"])
+                    continue
+
                 date_str = f"{self.year}-{self.month:02d}-{day:02d}"
-                count = shift_counts.get(date_str, 0)
-                if count > 1:
-                    # Draw the count in the cell (e.g., as a label or overlay)
-                    # This is a placeholder; actual drawing depends on your calendar widget
-                    cell = self.get_calendar_cell_for_date(day)
-                    if cell:
-                        cell.set_shift_count(count)
-        except Exception as e:
-            import traceback
-            print(f"[CalendarView] Error in build_widgets: {e}")
-            traceback.print_exc()
+                shift = shift_info.get(date_str)
+                is_available = date_str in available_dates
+                if shift and shift["type"] == "booked":
+                    is_available = False
+                cell_date = pydatetime.date(self.year, self.month, day)
+                is_past = cell_date < today
+                is_today = cell_date == today
+                locked = bool(is_past or (shift and shift["type"] == "booked"))
+
+                if is_past:
+                    bg, fg = UI["past"], UI["past_text"]
+                    badge = ""
+                elif shift and shift["type"] == "booked":
+                    bg, fg = UI["booked"], "#0B1F33"
+                    badge = "BOOKED"
+                elif shift and shift["type"] == "open":
+                    count = int(shift.get("count", 1) or 1)
+                    if is_available:
+                        bg, fg = UI["open_avail"], "#14532D"
+                        badge = f"OPEN x{count}" if count > 1 else "OPEN + AVAIL"
+                    else:
+                        bg, fg = UI["open_busy"], "#7C2D12"
+                        badge = f"OPEN x{count}" if count > 1 else "OPEN"
+                else:
+                    bg = UI["empty"] if (r + col) % 2 == 0 else UI["empty_alt"]
+                    fg = UI["text"]
+                    badge = "AVAIL" if is_available else ""
+
+                border = UI["today"] if is_today else UI["border"]
+                width = 2 if is_today else 1
+                # Soft fill
+                c.create_rectangle(x1, y1, x2, y2, fill=bg, outline=border, width=width)
+                if is_today:
+                    c.create_line(x1 + 1, y1 + 1, x2 - 1, y1 + 1, fill=UI["today"], width=2)
+
+                # Day number
+                c.create_text(
+                    x1 + 7,
+                    y1 + 4,
+                    anchor="nw",
+                    text=str(day),
+                    fill=fg,
+                    font=_ui_font(11, "bold"),
+                )
+                # Availability tick
+                if is_available and not is_past and not (shift and shift["type"] == "booked"):
+                    c.create_oval(x2 - 16, y1 + 4, x2 - 5, y1 + 15, fill=UI["accent"], outline="")
+                    c.create_text(
+                        x2 - 10.5,
+                        y1 + 9.5,
+                        text="✓",
+                        fill="white",
+                        font=_ui_font(7, "bold"),
+                    )
+                # Status badge
+                if badge and cell_h >= 26:
+                    c.create_text(
+                        x1 + 7,
+                        y2 - 5,
+                        anchor="sw",
+                        text=badge,
+                        fill=fg,
+                        font=_ui_font(7, "bold"),
+                    )
+
+                self._hit.append((x1, y1, x2, y2, date_str, locked))
 
     def get_calendar_cell_for_date(self, day):
-        # Placeholder: return the widget or cell object for the given day
-        # You must implement this according to your calendar widget
-        # For now, return None to avoid errors
         return None
+
 
 class MainApp(ttk.Frame):
     def __init__(self, master, *args, **kwargs):
@@ -171,129 +260,170 @@ class MainApp(ttk.Frame):
         self._summary_email_sent_date = None
         self._start_daily_summary_timer()
 
-        # Add orange style for open shifts (after root exists)
         style = ttk.Style()
-        style.configure("Orange.TFrame", background="#FFA500")
-        style.configure("Orange.TLabel", background="#FFA500")
-        style.configure("Orange.TCheckbutton", background="#FFA500")
-
-        style.configure("Green.TFrame", background="#90EE90")  # light green
-        style.configure("Green.TLabel", background="#90EE90")
-        style.configure("Green.TCheckbutton", background="#90EE90")
-
-        style.configure("Blue.TFrame", background="#3399FF")  # blue for booked
-        style.configure("Blue.TLabel", background="#3399FF")
-        style.configure("Blue.TCheckbutton", background="#3399FF")
-
-        style.configure("Purple.TFrame", background="#B266FF")  # purple for emailed open
+        try:
+            style.theme_use("vista")
+        except Exception:
+            pass
+        style.configure("App.TFrame", background=UI["bg"])
+        style.configure("Toolbar.TFrame", background=UI["surface"])
+        style.configure("App.TLabel", background=UI["surface"], foreground=UI["text"], font=_ui_font(9))
+        style.configure("Muted.TLabel", background=UI["surface"], foreground=UI["muted"], font=_ui_font(8))
+        style.configure("Countdown.TLabel", background=UI["surface"], foreground=UI["accent"], font=_ui_font(9, "bold"))
+        style.configure("Tool.TButton", font=_ui_font(8), padding=(6, 1))
+        style.configure("Accent.TButton", font=_ui_font(8, "bold"), padding=(8, 1))
+        style.configure("Orange.TFrame", background=UI["open_busy"])
+        style.configure("Orange.TLabel", background=UI["open_busy"])
+        style.configure("Orange.TCheckbutton", background=UI["open_busy"])
+        style.configure("Green.TFrame", background=UI["open_avail"])
+        style.configure("Green.TLabel", background=UI["open_avail"])
+        style.configure("Green.TCheckbutton", background=UI["open_avail"])
+        style.configure("Blue.TFrame", background=UI["booked"])
+        style.configure("Blue.TLabel", background=UI["booked"])
+        style.configure("Blue.TCheckbutton", background=UI["booked"])
+        style.configure("Purple.TFrame", background="#B266FF")
         style.configure("Purple.TLabel", background="#B266FF")
         style.configure("Purple.TCheckbutton", background="#B266FF")
+
+        self.configure(style="App.TFrame")
         self.pack(fill="both", expand=True)
         self.current_date = pydatetime.datetime.today().replace(day=1)
 
-        # Compact full-width layout designed to sit under the Teams scan window.
         from config import load_config, save_config
         self.config = load_config()
 
-        # Compatibility aliases (older code referred to left/right panels).
-        self.toolbar = ttk.Frame(self)
-        self.toolbar.pack(side="top", fill="x", padx=8, pady=(6, 2))
+        # Outer chrome - one slim toolbar row so Canvas month grid gets max height.
+        outer = tk.Frame(self, bg=UI["bg"])
+        outer.pack(fill="both", expand=True)
+
+        self.toolbar = tk.Frame(outer, bg=UI["surface"], highlightbackground=UI["border"], highlightthickness=1)
+        self.toolbar.pack(side="top", fill="x", padx=3, pady=(3, 2))
         self.left_panel = self.toolbar
-        self.right_panel = ttk.Frame(self)
-        self.right_panel.pack(side="top", fill="both", expand=True, padx=8, pady=(0, 6))
+        self.timer_frame = self.toolbar
+        self.nav_frame = self.toolbar
 
-        # --- Row 1: interval + scan controls ---
-        self.timer_frame = ttk.Frame(self.toolbar)
-        self.timer_frame.pack(side="top", fill="x")
+        bar = tk.Frame(self.toolbar, bg=UI["surface"])
+        bar.pack(side="top", fill="x", padx=6, pady=3)
 
-        ttk.Label(self.timer_frame, text="Scan Interval (s):").pack(side="left", padx=(0, 4))
+        def _sep():
+            tk.Frame(bar, bg=UI["border"], width=1, height=14).pack(side="left", padx=5, fill="y")
+
+        tk.Label(bar, text="SHIFT MONITOR", font=_ui_font(8, "bold"), bg=UI["surface"], fg=UI["accent"]).pack(side="left", padx=(0, 6))
+        tk.Label(bar, text="Interval", font=_ui_font(8), bg=UI["surface"], fg=UI["muted"]).pack(side="left")
         self.interval_var = tk.StringVar(value=str(self.config.get("scan_interval_seconds", 600)))
-        self.interval_entry = ttk.Entry(self.timer_frame, textvariable=self.interval_var, width=6)
-        self.interval_entry.pack(side="left", padx=2)
-        self.save_btn = ttk.Button(self.timer_frame, text="Store", command=self.save_interval, width=7)
-        self.save_btn.pack(side="left", padx=2)
+        self.interval_entry = ttk.Entry(bar, textvariable=self.interval_var, width=4, font=_ui_font(9))
+        self.interval_entry.pack(side="left", padx=(3, 2))
+        self.save_btn = ttk.Button(bar, text="Store", command=self.save_interval, style="Tool.TButton", width=5)
+        self.save_btn.pack(side="left", padx=1)
 
-        self.scanning_on = True  # Start scanning by default
-        self.toggle_btn = ttk.Button(self.timer_frame, text="Stop Scanning", command=self.toggle_scanning, width=14)
-        self.toggle_btn.pack(side="left", padx=(8, 2))
-
-        self.scan_btn = ttk.Button(self.timer_frame, text="Scan", command=self.manual_scan, width=8)
-        self.scan_btn.pack(side="left", padx=2)
-        self.clear_btn = ttk.Button(self.timer_frame, text="Clear All Shifts", command=self.clear_all_shifts, width=14)
-        self.clear_btn.pack(side="left", padx=2)
-        self.test_email_btn = ttk.Button(self.timer_frame, text="Test Msg", command=self.send_test_msg, width=9)
-        self.test_email_btn.pack(side="left", padx=2)
+        _sep()
+        self.scanning_on = True
+        self.toggle_btn = ttk.Button(bar, text="Stop", command=self.toggle_scanning, style="Accent.TButton", width=5)
+        self.toggle_btn.pack(side="left", padx=1)
+        self.scan_btn = ttk.Button(bar, text="Scan", command=self.manual_scan, style="Tool.TButton", width=5)
+        self.scan_btn.pack(side="left", padx=1)
+        self.clear_btn = ttk.Button(bar, text="Clear", command=self.clear_all_shifts, style="Tool.TButton", width=5)
+        self.clear_btn.pack(side="left", padx=1)
+        self.test_email_btn = ttk.Button(bar, text="Test", command=self.send_test_msg, style="Tool.TButton", width=5)
+        self.test_email_btn.pack(side="left", padx=1)
         self.reset_btn = ttk.Button(
-            self.timer_frame,
-            text="Test Shift App Reset",
+            bar,
+            text="Reset",
             command=lambda: self.trigger_shift_app_reset(run_scan_after_reset=True),
-            width=18,
+            style="Tool.TButton",
+            width=6,
         )
-        self.reset_btn.pack(side="left", padx=2)
+        self.reset_btn.pack(side="left", padx=1)
 
+        _sep()
+        self.prev_btn = ttk.Button(bar, text="<", command=self.prev_month, style="Tool.TButton", width=3)
+        self.prev_btn.pack(side="left", padx=1)
+        self.current_btn = ttk.Button(bar, text="Today", command=self.move_to_current_month, style="Tool.TButton", width=6)
+        self.current_btn.pack(side="left", padx=1)
+        self.next_btn = ttk.Button(bar, text=">", command=self.next_month, style="Tool.TButton", width=3)
+        self.next_btn.pack(side="left", padx=1)
+
+        _sep()
         self.countdown_var = tk.StringVar(value="")
-        self.countdown_label = ttk.Label(self.timer_frame, textvariable=self.countdown_var, font=("Arial", 9, "bold"))
-        self.countdown_label.pack(side="left", padx=(10, 4))
-        self.minus10_btn = ttk.Button(self.timer_frame, text="-10s", command=self.subtract_ten_seconds, width=6)
-        self.minus10_btn.pack(side="left", padx=2)
+        self.countdown_label = tk.Label(
+            bar, textvariable=self.countdown_var, font=_ui_font(9, "bold"), bg=UI["surface"], fg=UI["accent"]
+        )
+        self.countdown_label.pack(side="left", padx=(0, 2))
+        self.minus10_btn = ttk.Button(bar, text="-10s", command=self.subtract_ten_seconds, style="Tool.TButton", width=4)
+        self.minus10_btn.pack(side="left", padx=1)
 
-        self.timer_running = True  # Start timer immediately
+        self.quit_btn = tk.Button(
+            bar,
+            text="Quit",
+            command=self.force_quit,
+            bg=UI["danger"],
+            fg="white",
+            activebackground="#A50D1A",
+            activeforeground="white",
+            font=_ui_font(8, "bold"),
+            relief="flat",
+            bd=0,
+            padx=10,
+            pady=1,
+            cursor="hand2",
+        )
+        self.quit_btn.pack(side="right")
+
+        legend = tk.Frame(bar, bg=UI["surface"])
+        legend.pack(side="right", padx=(4, 8))
+        for text, color in (
+            ("Booked", UI["booked"]),
+            ("Open+Avail", UI["open_avail"]),
+            ("Open", UI["open_busy"]),
+            ("Past", UI["past"]),
+        ):
+            tk.Label(
+                legend,
+                text=" " + text + " ",
+                font=_ui_font(7, "bold"),
+                bg=color,
+                fg=UI["text"],
+                highlightbackground=UI["border"],
+                highlightthickness=1,
+            ).pack(side="left", padx=2)
+
+        self.scan_status_var = tk.StringVar(value="Ready")
+        self.scan_status_label = tk.Label(
+            bar,
+            textvariable=self.scan_status_var,
+            font=_ui_font(8),
+            bg=UI["surface"],
+            fg=UI["muted"],
+            anchor="w",
+            justify="left",
+        )
+        self.scan_status_label.pack(side="left", fill="x", expand=True, padx=8)
+
+        self.timer_running = True
         try:
             self.remaining = int(self.interval_var.get())
         except Exception:
             self.remaining = 120
-        self._scanning = False  # Flag to prevent calendar updates during scanning
+        self._scanning = False
         self._scan_thread_running = False
         self._restart_countdown_when_done = False
 
-        # --- Row 2: month nav + status + quit ---
-        self.nav_frame = ttk.Frame(self.toolbar)
-        self.nav_frame.pack(side="top", fill="x", pady=(4, 0))
-
-        self.prev_btn = ttk.Button(self.nav_frame, text="< Prev Month", command=self.prev_month, width=14)
-        self.prev_btn.pack(side="left", padx=2)
-        self.current_btn = ttk.Button(self.nav_frame, text="Current Month", command=self.move_to_current_month, width=14)
-        self.current_btn.pack(side="left", padx=2)
-        self.next_btn = ttk.Button(self.nav_frame, text="Next Month >", command=self.next_month, width=14)
-        self.next_btn.pack(side="left", padx=2)
-
-        self.scan_status_var = tk.StringVar(value="")
-        self.scan_status_label = tk.Label(
-            self.nav_frame,
-            textvariable=self.scan_status_var,
-            font=("Arial", 9),
-            anchor="w",
-            justify="left",
-            relief="flat",
-        )
-        self.scan_status_label.pack(side="left", fill="x", expand=True, padx=10)
-
-        self.quit_btn = tk.Button(
-            self.nav_frame,
-            text="Quit",
-            command=self.force_quit,
-            bg="red",
-            fg="white",
-            font=("Arial", 10, "bold"),
-            width=8,
-        )
-        self.quit_btn.pack(side="right", padx=2)
-
-        # Calendar fills remaining height under the toolbar.
-        self.header = ttk.Frame(self.right_panel)  # Keep for compatibility
+        self.right_panel = tk.Frame(outer, bg=UI["bg"])
+        self.right_panel.pack(side="top", fill="both", expand=True, padx=3, pady=(0, 3))
+        self.header = tk.Frame(self.right_panel, bg=UI["bg"])
         self.header.pack_forget()
 
         try:
             self.cal_frame = CalendarView(self.right_panel, self.current_date.year, self.current_date.month)
             self.cal_frame.pack(fill="both", expand=True, side="top")
         except Exception as e:
-            print(f"[GUI] Error initializing calendar: {e}")
+            print("[GUI] Error initializing calendar:", e)
             self.cal_frame = ttk.Label(self.right_panel, text="Calendar loading...")
             self.cal_frame.pack(fill="both", expand=True, side="top")
             self.after(500, self.ensure_calendar_visible)
 
-        # Start scanning automatically after GUI is initialized
         self.after(1000, self.start_countdown)
+        self.toggle_btn.config(text="Stop" if self.scanning_on else "Start")
 
     def trigger_shift_app_reset(self, run_scan_after_reset=False):
         import threading
@@ -1134,7 +1264,7 @@ class MainApp(ttk.Frame):
             self.timer_running = True
             self.remaining = int(self.interval_var.get())
             self.start_countdown()
-            self.toggle_btn.config(text="Stop Scanning")
+            self.toggle_btn.config(text="Stop")
             # Removed popup box on start
         else:
             # Stop scanning
@@ -1142,7 +1272,7 @@ class MainApp(ttk.Frame):
             self.timer_running = False
             self.remaining = int(self.interval_var.get())
             self.update_countdown_label()
-            self.toggle_btn.config(text="Start Scanning")
+            self.toggle_btn.config(text="Start")
             # Removed popup box on stop
 
     def start_countdown(self):
@@ -1269,33 +1399,96 @@ class MainApp(ttk.Frame):
                 print(f"[GUI] Failed to restore calendar: {e2}")
 
 
-def _docked_geometry_under_teams(root):
-    """
-    Full-width strip directly under the production Teams scan window.
-    Uses TEAMS_SCAN_HEIGHT_RATIO so the monitor app never overlaps Teams.
-    """
+def _work_area():
+    """Return Windows work area (screen minus taskbar) as left, top, right, bottom."""
+    import ctypes
+    from ctypes import wintypes
+
+    class RECT(ctypes.Structure):
+        _fields_ = [
+            ("left", ctypes.c_long),
+            ("top", ctypes.c_long),
+            ("right", ctypes.c_long),
+            ("bottom", ctypes.c_long),
+        ]
+
+    rect = RECT()
+    # SPI_GETWORKAREA = 0x0030
+    if ctypes.windll.user32.SystemParametersInfoW(0x0030, 0, ctypes.byref(rect), 0):
+        return rect.left, rect.top, rect.right, rect.bottom
     import pyautogui
+    sw, sh = pyautogui.size()
+    return 0, 0, sw, sh
+
+
+def _docked_rect_under_teams():
+    """
+    Return (x, y, w, h) for a full-width strip under the Teams scan window,
+    filling the remaining Windows work area so the month calendar fits.
+    """
     try:
-        from automation import TEAMS_SCAN_HEIGHT_RATIO
+        from automation import TEAMS_SCAN_HEIGHT_RATIO, get_teams_window
         teams_ratio = float(TEAMS_SCAN_HEIGHT_RATIO)
     except Exception:
         teams_ratio = 0.65
+        get_teams_window = None
 
+    left, top, right, bottom = _work_area()
+    work_w = max(800, right - left)
+
+    teams_bottom = None
+    try:
+        if get_teams_window:
+            tw = get_teams_window()
+            if tw is not None:
+                tr = tw.rectangle()
+                teams_bottom = int(tr.bottom)
+    except Exception:
+        teams_bottom = None
+
+    import pyautogui
     screen_w, screen_h = pyautogui.size()
-    # Leave a couple of pixels so window borders do not collide.
-    teams_h = max(360, int(screen_h * teams_ratio))
-    y = min(teams_h + 2, max(0, screen_h - 120))
-    # Fill remaining vertical space under Teams, with a modest floor/ceiling.
-    remaining = max(140, screen_h - y)
-    # Keep a slim control bar + calendar; leave a little room for taskbar.
-    height = max(250, min(remaining - 40, 360))
-    if y + height > screen_h - 8:
-        height = max(220, screen_h - y - 8)
-    return f"{screen_w}x{height}+0+{y}"
+    if teams_bottom is None:
+        teams_bottom = max(360, int(screen_h * teams_ratio))
+
+    # Sit just under Teams; never climb above the work area top.
+    y = max(top, min(teams_bottom + 2, bottom - 180))
+    height = max(180, bottom - y)
+    return left, y, work_w, height
+
+
+def _docked_geometry_under_teams(root=None):
+    x, y, w, h = _docked_rect_under_teams()
+    return f"{w}x{h}+{x}+{y}"
+
+
+def _force_dock_window(root):
+    """Apply dock geometry via Tk and win32 for pixel-accurate placement."""
+    x, y, w, h = _docked_rect_under_teams()
+    geom = f"{w}x{h}+{x}+{y}"
+    try:
+        root.minsize(800, 180)
+        root.maxsize(root.winfo_screenwidth(), root.winfo_screenheight())
+    except Exception:
+        pass
+    root.geometry(geom)
+    try:
+        root.update_idletasks()
+        hwnd = int(root.winfo_id())
+        # Climb to the top-level owner HWND.
+        import ctypes
+        user32 = ctypes.windll.user32
+        GA_ROOT = 2
+        root_hwnd = user32.GetAncestor(hwnd, GA_ROOT) or hwnd
+        # SWP_SHOWWINDOW | SWP_NOZORDER
+        user32.SetWindowPos(root_hwnd, 0, int(x), int(y), int(w), int(h), 0x0040 | 0x0004)
+    except Exception:
+        pass
+    return geom
 
 
 def launch_gui(root, config):
-    root.title("Teams Shift Database and Alert")
+    root.title("Teams Shift Monitor")
     # Always dock full-width under the Teams scan window for a neat stacked layout.
     import sqlite3
     import os as _os
@@ -1318,21 +1511,25 @@ def launch_gui(root, config):
         except Exception:
             pass
 
-    def apply_docked_geometry():
-        use_geom = _docked_geometry_under_teams(root)
-        root.geometry(use_geom)
+    def apply_docked_geometry(refresh_cal=False):
+        use_geom = _force_dock_window(root)
         try:
             root.update_idletasks()
-            # Keep the status line using available width under the toolbar.
             if hasattr(app, "scan_status_label"):
-                app.scan_status_label.configure(wraplength=max(200, root.winfo_width() - 520))
+                app.scan_status_label.configure(wraplength=max(180, root.winfo_width() - 980))
+            if refresh_cal and hasattr(app, "refresh_calendar"):
+                app.refresh_calendar(force=True)
         except Exception:
             pass
         save_geometry(use_geom)
         return use_geom
 
     # Apply before widgets so first paint is already docked.
-    root.geometry(_docked_geometry_under_teams(root))
+    try:
+        root.configure(bg=UI["bg"])
+    except Exception:
+        pass
+    _force_dock_window(root)
 
     def save_window_geometry():
         geom = root.geometry()
@@ -1342,10 +1539,11 @@ def launch_gui(root, config):
     app = MainApp(root)
     root.protocol("WM_DELETE_WINDOW", save_window_geometry)
 
-    # Re-assert dock after the widget tree is realized (and again shortly after
-    # startup) so OS/window-manager chrome cannot leave us overlapping Teams.
-    root.after(50, apply_docked_geometry)
-    root.after(500, apply_docked_geometry)
+    # Re-assert dock after the widget tree is realized so the full remaining
+    # work-area height is used for the month grid (no clipped final weeks).
+    root.after(50, lambda: apply_docked_geometry(False))
+    root.after(250, lambda: apply_docked_geometry(True))
+    root.after(900, lambda: apply_docked_geometry(True))
 
     import os
 

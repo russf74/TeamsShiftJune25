@@ -3,11 +3,21 @@ Teams Shift Monitor Application
 Version tracking and changelog
 """
 
-__version__ = "1.1.8"
+__version__ = "1.1.9"
 __version_date__ = "2026-07-31"
 
 # Changelog
 CHANGELOG = """
+Version 1.1.9 (2026-07-31) - Professional docked GUI with full-month calendar
+===============================================================================
+UI: Redesigned monitor strip under Teams for a clean professional look
+   - Fluent-inspired palette, slim single-row toolbar, colour legend chips.
+   - Canvas-drawn month grid scales into the remaining work-area height so
+     all weeks (including days 27-31) stay fully visible under Teams.
+   - Click a day cell to toggle availability (past/booked stay locked).
+   - Dock geometry uses the Windows work area so the app never overlaps
+     Teams or the taskbar.
+
 Version 1.1.8 (2026-07-31) - Countdown after scan + docked full-width GUI
 ==========================================================================
 🐛 FIX: Next-scan countdown no longer starts when a scan begins
