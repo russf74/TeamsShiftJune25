@@ -3,11 +3,25 @@ Teams Shift Monitor Application
 Version tracking and changelog
 """
 
-__version__ = "1.1.7"
+__version__ = "1.1.8"
 __version_date__ = "2026-07-31"
 
 # Changelog
 CHANGELOG = """
+Version 1.1.8 (2026-07-31) - Countdown after scan + docked full-width GUI
+==========================================================================
+🐛 FIX: Next-scan countdown no longer starts when a scan begins
+   - Root cause: start_countdown() reset remaining and rescheduled itself
+     immediately after launching auto_scan(), so the interval overlapped the
+     in-progress scan.
+   - Fix: pause the timer while scanning; restart the full interval only from
+     _manual_scan_worker after the scan thread finishes.
+
+✨ UI: App window docks full-width directly under the Teams scan window
+   - Controls compacted into a top toolbar; calendar fills remaining height.
+   - Geometry uses TEAMS_SCAN_HEIGHT_RATIO so the monitor never overlaps Teams
+     when both are in their production layout.
+
 Version 1.1.7 (2026-07-31) - Taller Teams scan window for multi-row open shifts
 ================================================================================
 🐛 FIX: Personal row clipped when 2+ open-shift rows appear above it

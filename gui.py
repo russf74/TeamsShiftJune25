@@ -23,10 +23,12 @@ class CalendarView(ttk.Frame):
             cal = calendar.Calendar()
             month_days = cal.monthdayscalendar(self.year, self.month)
             header = f"{calendar.month_name[self.month]} {self.year}"
-            ttk.Label(self, text=header, font=("Arial", 16)).grid(row=0, column=0, columnspan=7, pady=5)
+            ttk.Label(self, text=header, font=("Arial", 12, "bold")).grid(row=0, column=0, columnspan=7, pady=(2, 2))
             days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
             for idx, day in enumerate(days):
-                ttk.Label(self, text=day, font=("Arial", 10, "bold")).grid(row=1, column=idx)
+                ttk.Label(self, text=day, font=("Arial", 9, "bold")).grid(row=1, column=idx, sticky="ew")
+            for col in range(7):
+                self.columnconfigure(col, weight=1)
             # Fetch DB info
             shifts = get_shifts_for_month(self.year, self.month)
             availability = get_availability_for_month(self.year, self.month)
@@ -62,9 +64,9 @@ class CalendarView(ttk.Frame):
                             cb_style = None
                             frame = tk.Frame(self, bg="#888888", highlightbackground="#888", highlightthickness=1)
                             frame.grid(row=r+2, column=c, padx=1, pady=1, sticky="nsew")
-                            label = tk.Label(frame, text=str(day), bg="#888888", fg="#cccccc")
+                            label = tk.Label(frame, text=str(day), bg="#888888", fg="#cccccc", font=("Arial", 9))
                             label.pack()
-                            spacer = tk.Label(frame, text=" ", width=9, bg="#888888")
+                            spacer = tk.Label(frame, text=" ", width=4, bg="#888888", font=("Arial", 8))
                             spacer.pack()
                             cb = ttk.Checkbutton(frame, text="", state="disabled")
                             cb.pack(anchor="center")
@@ -97,9 +99,9 @@ class CalendarView(ttk.Frame):
                         frame.grid(row=r+2, column=c, padx=1, pady=1, sticky="nsew")
                         # Use tk.Label for colored backgrounds
                         if label_style:
-                            label = tk.Label(frame, text=str(day), bg=style.lookup(label_style, 'background'))
+                            label = tk.Label(frame, text=str(day), bg=style.lookup(label_style, 'background'), font=("Arial", 9))
                         else:
-                            label = ttk.Label(frame, text=str(day))
+                            label = ttk.Label(frame, text=str(day), font=("Arial", 9))
                         label.pack()
                         var = tk.BooleanVar(value=is_available)
                         # --- Show open shift count in the middle spacer ---
@@ -108,7 +110,14 @@ class CalendarView(ttk.Frame):
                             count = shift.get('count', 1)
                             if count > 0:
                                 count_text = f"({count})"
-                        spacer = tk.Label(frame, text=count_text, width=9, bg=style.lookup(label_style, 'background') if label_style else None, fg="#333", font=("Arial", 9))
+                        spacer = tk.Label(
+                            frame,
+                            text=count_text,
+                            width=4,
+                            bg=style.lookup(label_style, 'background') if label_style else None,
+                            fg="#333",
+                            font=("Arial", 8),
+                        )
                         spacer.pack()
                         if cb_style:
                             cb = ttk.Checkbutton(frame, text="", variable=var,
@@ -182,97 +191,117 @@ class MainApp(ttk.Frame):
         self.pack(fill="both", expand=True)
         self.current_date = pydatetime.datetime.today().replace(day=1)
 
-        # --- Create main horizontal layout ---
+        # Compact full-width layout designed to sit under the Teams scan window.
         from config import load_config, save_config
         self.config = load_config()
 
-        # Create left panel for controls and right panel for calendar
-        self.left_panel = ttk.Frame(self)
-        self.left_panel.pack(side="left", fill="y", padx=10, pady=10)
-        
+        # Compatibility aliases (older code referred to left/right panels).
+        self.toolbar = ttk.Frame(self)
+        self.toolbar.pack(side="top", fill="x", padx=8, pady=(6, 2))
+        self.left_panel = self.toolbar
         self.right_panel = ttk.Frame(self)
-        self.right_panel.pack(side="right", fill="both", expand=True, padx=(0, 10), pady=10)
+        self.right_panel.pack(side="top", fill="both", expand=True, padx=8, pady=(0, 6))
 
-        # --- Scan Timer Controls (now in left panel) ---
-        self.timer_frame = ttk.Frame(self.left_panel)
-        self.timer_frame.pack(fill="x", pady=(0, 10), side="top")
+        # --- Row 1: interval + scan controls ---
+        self.timer_frame = ttk.Frame(self.toolbar)
+        self.timer_frame.pack(side="top", fill="x")
 
-        # --- Top row: Scan interval controls ---
-        ttk.Label(self.timer_frame, text="Scan Interval (seconds):").grid(row=0, column=0, padx=5, pady=2, sticky="w")
+        ttk.Label(self.timer_frame, text="Scan Interval (s):").pack(side="left", padx=(0, 4))
         self.interval_var = tk.StringVar(value=str(self.config.get("scan_interval_seconds", 600)))
-        self.interval_entry = ttk.Entry(self.timer_frame, textvariable=self.interval_var, width=8)
-        self.interval_entry.grid(row=0, column=1, padx=2, pady=2, sticky="w")
-        self.save_btn = ttk.Button(self.timer_frame, text="Store", command=self.save_interval)
-        self.save_btn.grid(row=0, column=2, padx=5, pady=2, sticky="w")
-        # Replace checkbox with a toggle button (on/off)
+        self.interval_entry = ttk.Entry(self.timer_frame, textvariable=self.interval_var, width=6)
+        self.interval_entry.pack(side="left", padx=2)
+        self.save_btn = ttk.Button(self.timer_frame, text="Store", command=self.save_interval, width=7)
+        self.save_btn.pack(side="left", padx=2)
+
         self.scanning_on = True  # Start scanning by default
         self.toggle_btn = ttk.Button(self.timer_frame, text="Stop Scanning", command=self.toggle_scanning, width=14)
-        self.toggle_btn.grid(row=0, column=3, padx=10, pady=2, sticky="w")
+        self.toggle_btn.pack(side="left", padx=(8, 2))
+
+        self.scan_btn = ttk.Button(self.timer_frame, text="Scan", command=self.manual_scan, width=8)
+        self.scan_btn.pack(side="left", padx=2)
+        self.clear_btn = ttk.Button(self.timer_frame, text="Clear All Shifts", command=self.clear_all_shifts, width=14)
+        self.clear_btn.pack(side="left", padx=2)
+        self.test_email_btn = ttk.Button(self.timer_frame, text="Test Msg", command=self.send_test_msg, width=9)
+        self.test_email_btn.pack(side="left", padx=2)
+        self.reset_btn = ttk.Button(
+            self.timer_frame,
+            text="Test Shift App Reset",
+            command=lambda: self.trigger_shift_app_reset(run_scan_after_reset=True),
+            width=18,
+        )
+        self.reset_btn.pack(side="left", padx=2)
+
         self.countdown_var = tk.StringVar(value="")
-        # Place countdown label on a new row, smaller font
-        self.countdown_label = ttk.Label(self.timer_frame, textvariable=self.countdown_var, font=("Arial", 9))
-        self.countdown_label.grid(row=2, column=0, columnspan=5, padx=5, pady=(2, 0), sticky="w")
-        self.timer_running = True  # Start timer immediately
-        self.remaining = int(self.interval_var.get())
-        self._scanning = False  # Flag to prevent calendar updates during scanning
+        self.countdown_label = ttk.Label(self.timer_frame, textvariable=self.countdown_var, font=("Arial", 9, "bold"))
+        self.countdown_label.pack(side="left", padx=(10, 4))
         self.minus10_btn = ttk.Button(self.timer_frame, text="-10s", command=self.subtract_ten_seconds, width=6)
-        self.minus10_btn.grid(row=3, column=0, padx=5, pady=(2, 4), sticky="w")
+        self.minus10_btn.pack(side="left", padx=2)
 
-        # --- Second row: Action buttons ---
-        self.scan_btn = ttk.Button(self.timer_frame, text="Scan", command=self.manual_scan)
-        self.scan_btn.grid(row=1, column=0, padx=5, pady=4, sticky="w")
-        self.clear_btn = ttk.Button(self.timer_frame, text="Clear All Shifts", command=self.clear_all_shifts)
-        self.clear_btn.grid(row=1, column=1, padx=5, pady=4, sticky="w")
-        self.test_email_btn = ttk.Button(self.timer_frame, text="Test Msg", command=self.send_test_msg)
-        self.test_email_btn.grid(row=1, column=2, padx=5, pady=4, sticky="w")
-        # Add Test Shift App Reset button (after calendar and header setup)
-        self.reset_btn = ttk.Button(self.timer_frame, text="Test Shift App Reset", command=self.trigger_shift_app_reset)
-        self.reset_btn.grid(row=1, column=3, padx=5, pady=4, sticky="w")
+        self.timer_running = True  # Start timer immediately
+        try:
+            self.remaining = int(self.interval_var.get())
+        except Exception:
+            self.remaining = 120
+        self._scanning = False  # Flag to prevent calendar updates during scanning
+        self._scan_thread_running = False
+        self._restart_countdown_when_done = False
 
-        # Scan status label in left panel below timer controls - fixed height for 2 rows
+        # --- Row 2: month nav + status + quit ---
+        self.nav_frame = ttk.Frame(self.toolbar)
+        self.nav_frame.pack(side="top", fill="x", pady=(4, 0))
+
+        self.prev_btn = ttk.Button(self.nav_frame, text="< Prev Month", command=self.prev_month, width=14)
+        self.prev_btn.pack(side="left", padx=2)
+        self.current_btn = ttk.Button(self.nav_frame, text="Current Month", command=self.move_to_current_month, width=14)
+        self.current_btn.pack(side="left", padx=2)
+        self.next_btn = ttk.Button(self.nav_frame, text="Next Month >", command=self.next_month, width=14)
+        self.next_btn.pack(side="left", padx=2)
+
         self.scan_status_var = tk.StringVar(value="")
-        self.scan_status_label = tk.Label(self.left_panel, textvariable=self.scan_status_var, 
-                                        font=("Arial", 9), wraplength=280, 
-                                        width=40, height=2, anchor="nw", justify="left",
-                                        relief="flat")
-        self.scan_status_label.pack(fill="x", pady=5, side="top")
-        
-        # Navigation controls in left panel
-        nav_frame = ttk.Frame(self.left_panel)
-        nav_frame.pack(fill="x", pady=5, side="top")
-        self.prev_btn = ttk.Button(nav_frame, text="< Prev Month", command=self.prev_month)
-        self.prev_btn.pack(fill="x", pady=2)
-        self.current_btn = ttk.Button(nav_frame, text="Move to current month", command=self.move_to_current_month)
-        self.current_btn.pack(fill="x", pady=2)
-        self.next_btn = ttk.Button(nav_frame, text="Next Month >", command=self.next_month)
-        self.next_btn.pack(fill="x", pady=2)
-        
-        # Quit button in left panel
-        self.quit_btn = tk.Button(self.left_panel, text="Quit", command=self.force_quit, bg="red", fg="white", font=("Arial", 10, "bold"))
-        self.quit_btn.pack(fill="x", pady=10, side="top")
-        
-        # Calendar in right panel (no header needed now)
-        self.header = ttk.Frame(self.right_panel)  # Keep this for compatibility
-        self.header.pack_forget()  # But don't display it
+        self.scan_status_label = tk.Label(
+            self.nav_frame,
+            textvariable=self.scan_status_var,
+            font=("Arial", 9),
+            anchor="w",
+            justify="left",
+            relief="flat",
+        )
+        self.scan_status_label.pack(side="left", fill="x", expand=True, padx=10)
 
-        # Initialize calendar frame in right panel
+        self.quit_btn = tk.Button(
+            self.nav_frame,
+            text="Quit",
+            command=self.force_quit,
+            bg="red",
+            fg="white",
+            font=("Arial", 10, "bold"),
+            width=8,
+        )
+        self.quit_btn.pack(side="right", padx=2)
+
+        # Calendar fills remaining height under the toolbar.
+        self.header = ttk.Frame(self.right_panel)  # Keep for compatibility
+        self.header.pack_forget()
+
         try:
             self.cal_frame = CalendarView(self.right_panel, self.current_date.year, self.current_date.month)
             self.cal_frame.pack(fill="both", expand=True, side="top")
         except Exception as e:
             print(f"[GUI] Error initializing calendar: {e}")
-            # Create a simple fallback calendar
             self.cal_frame = ttk.Label(self.right_panel, text="Calendar loading...")
             self.cal_frame.pack(fill="both", expand=True, side="top")
-            # Try to recreate the calendar after a short delay
             self.after(500, self.ensure_calendar_visible)
 
         # Start scanning automatically after GUI is initialized
-        self.after(1000, self.start_countdown)  # Start countdown after 1 second delay
+        self.after(1000, self.start_countdown)
 
-    def trigger_shift_app_reset(self):
+    def trigger_shift_app_reset(self, run_scan_after_reset=False):
         import threading
-        threading.Thread(target=self.refresh_teams_shifts, daemon=True).start()
+        threading.Thread(
+            target=self.refresh_teams_shifts,
+            args=(run_scan_after_reset,),
+            daemon=True
+        ).start()
 
     def force_quit(self):
         """Force quit the application"""
@@ -403,143 +432,112 @@ class MainApp(ttk.Frame):
                 print(f"[Marker] {e}")
         self.after(0, _draw)
 
-    def refresh_teams_shifts(self):
-        import pyautogui
+    def refresh_teams_shifts(self, run_scan_after_reset=False):
         import time
-        import os
         import threading
         from datetime import datetime
         from email_alert import send_email_alert
-        
+        from automation import refresh_teams_shifts_view
+
         # Start screen recording in background thread
         video_filename = "midnight_reset.mp4"  # Single filename that overwrites each day
-        
+
         self.scan_status_var.set("Starting screen recording and refreshing Teams Shifts app...")
-        
+
         # Start recording in background thread
         recording_thread = threading.Thread(
             target=self._record_screen_video,
-            args=(300, 5, video_filename),  # 5 minutes, 5 FPS, single filename
+            args=(180, 5, video_filename),  # 3 minutes is enough for the revised reset path
             daemon=True
         )
         recording_thread.start()
-        
+
         self.scan_status_var.set("Pausing scanning and refreshing Teams Shifts app...")
         # Pause scanning AND mark reset in progress so any concurrent scan aborts immediately
         self._midnight_reset_in_progress = True
         self.timer_running = False
         self.scanning_on = False
         self._scanning = False
-        max_attempts = 10
-        for attempt in range(1, max_attempts + 1):
-            try:
-                self.scan_status_var.set(f"[Reset] Attempt {attempt} of {max_attempts}...")
-                # Step 1: Find Shifts icon - navigate away then back to force a refresh.
-                # If already on Shifts (blue), click Calendar first to leave, then come back.
-                _base_dir = os.path.dirname(os.path.abspath(__file__))
-                away_icon_path = os.path.join(_base_dir, 'away_icon.png')
-                shifts_unselected_path = os.path.join(_base_dir, 'shifts_unselected.png')
-                shifts_selected_path = os.path.join(_base_dir, 'shifts_selected.png')
-                from automation import find_and_click_template
-
-                # Step 1: ALWAYS click away icon first
-                self.scan_status_var.set("[Reset] Step 1: Clicking away icon...")
-                result = find_and_click_template(away_icon_path, confidence=0.8, pause=0.5)
-                if not result:
-                    self.scan_status_var.set("[Reset] Away icon not found. Retrying...")
-                    time.sleep(2)
-                    continue
-                print(f"[Reset] Away icon clicked at {result}")
-                time.sleep(15)
-
-                # Step 2: Click Shifts icon (try unselected first, then selected)
-                self.scan_status_var.set("[Reset] Step 2: Clicking Shifts icon...")
-                result = find_and_click_template(shifts_unselected_path, confidence=0.8, pause=0.5)
-                if not result:
-                    result = find_and_click_template(shifts_selected_path, confidence=0.8, pause=0.5)
-                if not result:
-                    self.scan_status_var.set("[Reset] Shifts icon not found. Retrying...")
-                    time.sleep(2)
-                    continue
-                print(f"[Reset] Shifts icon clicked at {result}")
-                time.sleep(15)
-
-                # Step 3: Wait for Shifts loaded
-                loaded = False
-                shiftloaded_path = os.path.join(_base_dir, 'shiftloaded.png')
-                for _ in range(20):
-                    if find_and_click_template(shiftloaded_path, confidence=0.7, pause=0):
-                        loaded = True
-                        break
-                    time.sleep(1)
-                if not loaded:
-                    self.scan_status_var.set("[Reset] Shifts did not finish loading. Retrying...")
-                    time.sleep(2)
-                    continue
-
-                # Success!
-                self.scan_status_var.set("Teams Shifts app refreshed successfully. Will resume scanning at 5am.")
-                
-                # Send success confirmation email
-                try:
-                    send_email_alert(
-                        "Teams Shifts app reset successful",
-                        "Teams Shifts app was successfully refreshed at midnight. Scanning will resume at 5:00 AM.",
-                        "russfray74@gmail.com"
-                    )
-                    print(f"[Reset] Success confirmation email sent")
-                except Exception as e:
-                    print(f"[Reset] Failed to send success email: {e}")
-                
-                # CRITICAL FIX: Don't resume scanning immediately after midnight reset
-                # Instead, schedule resumption at 5am to avoid nighttime duplicate alerts
-                import datetime as dt
-                now = dt.datetime.now()
-                
-                # Calculate time until 5am
-                next_5am = now.replace(hour=5, minute=0, second=0, microsecond=0)
-                if now.hour >= 5:
-                    # If it's already past 5am today, schedule for 5am tomorrow
-                    next_5am += dt.timedelta(days=1)
-    
-                delay_seconds = int((next_5am - now).total_seconds())
-                
-                print(f"[Reset] Scheduling scan resumption at 5:00 AM (in {delay_seconds} seconds)")
-                self.scan_status_var.set(f"Midnight reset complete. Resuming at 5:00 AM.")
-  
-                # Schedule the countdown to start at 5am
-                def resume_at_5am():
-                    print(f"[Reset] Resuming scanning at 5:00 AM")
-                    self.timer_running = True
-                    self.scanning_on = True
-                    self._scanning = False
-                    self.start_countdown()
-     
-                self.after(delay_seconds * 1000, resume_at_5am)  # Convert to milliseconds
-                # Clear the reset flag only after scheduling the 5am resume
-                self._midnight_reset_in_progress = False
-                return
-            except Exception as e:
-                import traceback
-                traceback.print_exc()
-                self.scan_status_var.set(f"[Reset] Error: {e}. Retrying...")
-                time.sleep(2)
-        # If we reach here, all attempts failed
-        self.scan_status_var.set("Teams refresh failed after 10 attempts. Emailing admin.")
         try:
-            send_email_alert(
-                "teams refresh failed",
-                "Teams Shifts app could not be refreshed after 10 attempts.",
-                "russfray74@gmail.com"
-            )
+            self.scan_status_var.set("[Reset] Opening Teams Shifts monthly view...")
+            if not refresh_teams_shifts_view():
+                raise RuntimeError("Could not refresh Microsoft Teams Shifts monthly view")
+
+            self.scan_status_var.set("Teams Shifts app refreshed successfully. Will resume scanning at 5am.")
+            try:
+                send_email_alert(
+                    "Teams Shifts app reset successful",
+                    "Teams Shifts app was successfully refreshed at midnight. Scanning will resume at 5:00 AM.",
+                    "russfray74@gmail.com"
+                )
+                print("[Reset] Success confirmation email sent")
+            except Exception as e:
+                print(f"[Reset] Failed to send success email: {e}")
+
+            if run_scan_after_reset:
+                self.scan_status_var.set("Teams Shifts app refreshed successfully. Starting test scan...")
+                self.timer_running = True
+                self.scanning_on = True
+                self._scanning = False
+                self.after(0, lambda: self.manual_scan(silent=True))
+                return
+
+            now = datetime.now()
+            next_5am = now.replace(hour=5, minute=0, second=0, microsecond=0)
+            if now >= next_5am:
+                from datetime import timedelta
+                next_5am += timedelta(days=1)
+
+            delay_seconds = int((next_5am - now).total_seconds())
+            print(f"[Reset] Scheduling scan resumption at 5:00 AM (in {delay_seconds} seconds)")
+            self.scan_status_var.set("Midnight reset complete. Resuming at 5:00 AM.")
+
+            def resume_at_5am():
+                print("[Reset] Resuming scanning at 5:00 AM")
+                self.timer_running = True
+                self.scanning_on = True
+                self._scanning = False
+                self.start_countdown()
+
+            self.after(delay_seconds * 1000, resume_at_5am)
         except Exception as e:
-            print(f"[Reset] Failed to send failure email: {e}")
-        # Remain paused
-        return
+            import traceback
+            traceback.print_exc()
+            self.scan_status_var.set(f"Teams refresh failed: {e}. Emailing admin.")
+            try:
+                send_email_alert(
+                    "Teams refresh failed",
+                    f"Teams Shifts app could not be refreshed: {e}",
+                    "russfray74@gmail.com"
+                )
+            except Exception as email_error:
+                print(f"[Reset] Failed to send failure email: {email_error}")
+        finally:
+            self._midnight_reset_in_progress = False
 
     def _start_daily_summary_timer(self):
         import threading, datetime
         from email_db import check_email_sent
+
+        def schedule_midnight_refresh(force_next_day=False):
+            now = datetime.datetime.now()
+            midnight_today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            if not force_next_day and midnight_today <= now < midnight_today + datetime.timedelta(minutes=5):
+                next_midnight = now
+            else:
+                next_midnight = (now + datetime.timedelta(days=1)).replace(
+                    hour=0, minute=0, second=0, microsecond=0
+                )
+            delay_seconds = (next_midnight - now).total_seconds()
+
+            def run_midnight_refresh():
+                print(f"[INFO] Triggering midnight Teams Shifts refresh at {datetime.datetime.now():%Y-%m-%d %H:%M:%S}")
+                self.trigger_shift_app_reset()
+                schedule_midnight_refresh(force_next_day=True)
+
+            midnight_timer = threading.Timer(delay_seconds, run_midnight_refresh)
+            midnight_timer.daemon = True
+            midnight_timer.start()
         
         def check_and_send_summary():
             import traceback
@@ -560,22 +558,15 @@ class MainApp(ttk.Frame):
                     else:
                         print(f"[INFO] Daily summary email already sent today, skipping at {now.strftime('%Y-%m-%d %H:%M:%S')}")
                 
-                # Check for midnight Teams refresh (once per day)
-                if now.hour == 0 and now.minute < 5:  # Only in first 5 minutes of midnight
-                    if not hasattr(self, '_last_refresh_date') or self._last_refresh_date != now.date():
-                        print(f"[INFO] Triggering midnight Teams Shifts refresh at {now.strftime('%Y-%m-%d %H:%M:%S')}")
-                        try:
-                            self.trigger_shift_app_reset()
-                            self._last_refresh_date = now.date()
-                        except Exception as e:
-                            print(f"[ERROR] Failed to trigger midnight refresh: {e}")
-                            traceback.print_exc()
-                
             except Exception as e:
                 print(f"[ERROR] Exception in summary email scheduler: {e}")
                 traceback.print_exc()
             # Schedule next check in 5 minutes
-            threading.Timer(300, check_and_send_summary).start()
+            summary_timer = threading.Timer(300, check_and_send_summary)
+            summary_timer.daemon = True
+            summary_timer.start()
+
+        schedule_midnight_refresh()
         check_and_send_summary()
 
     def _log_scan(self, new_shifts, alert_count, scan_status):
@@ -791,11 +782,13 @@ class MainApp(ttk.Frame):
         self.scan_status_var.set("Shifts cleared.")
         self.refresh_calendar(force=True)
         
-    def manual_scan(self, silent=False):
+    def manual_scan(self, silent=False, restart_countdown_when_done=False):
         """
         Performs a full automation scan for open shifts in Teams (4 months).
         Runs the heavy work in a background thread to keep the GUI responsive.
         If silent=True, suppresses any popups/dialogs (for auto-scan).
+        If restart_countdown_when_done=True, the next interval countdown starts
+        only after this scan fully finishes (not when it begins).
         """
         if getattr(self, '_scan_thread_running', False):
             self.scan_status_var.set("Scan already in progress...")
@@ -803,6 +796,13 @@ class MainApp(ttk.Frame):
 
         import threading
         self._scan_thread_running = True
+        # Always resume the interval countdown after any scan finishes when
+        # auto-scanning is enabled. Explicit flag still forces resume.
+        self._restart_countdown_when_done = bool(restart_countdown_when_done) or bool(self.scanning_on)
+        # Pause countdown while a scan is running so the interval does not
+        # overlap with an in-progress scan.
+        self.timer_running = False
+        self.countdown_var.set("Scanning... countdown paused")
         t = threading.Thread(target=self._manual_scan_worker, args=(silent,), daemon=True)
         t.start()
 
@@ -814,6 +814,27 @@ class MainApp(ttk.Frame):
             self._run_manual_scan(silent=silent)
         finally:
             self._scan_thread_running = False
+            restart = getattr(self, '_restart_countdown_when_done', False)
+            self._restart_countdown_when_done = False
+            if restart and self.scanning_on:
+                self.after(0, self._start_countdown_after_scan)
+            elif self.scanning_on:
+                # Safety net if flags got out of sync.
+                self.after(0, self._start_countdown_after_scan)
+            else:
+                self.after(0, lambda: self.countdown_var.set("Countdown: paused"))
+
+    def _start_countdown_after_scan(self):
+        """Begin the next scan-interval countdown after a scan has finished."""
+        if not self.scanning_on:
+            return
+        try:
+            self.remaining = int(self.interval_var.get())
+        except Exception:
+            self.remaining = int(self.config.get("scan_interval_seconds", 120) or 120)
+        self.timer_running = True
+        self.update_countdown_label()
+        self.after(1000, self.start_countdown)
 
     def _run_manual_scan(self, silent=False):
         """
@@ -1126,56 +1147,69 @@ class MainApp(ttk.Frame):
 
     def start_countdown(self):
         """
-        Countdown timer for automated scanning
+        Countdown timer for automated scanning.
+        The next countdown begins only after an auto-scan finishes.
         """
-        if not self.timer_running:
+        if not self.timer_running or not self.scanning_on:
             return
-            
+        if getattr(self, '_scan_thread_running', False):
+            # Do not tick while a scan is in progress.
+            self.countdown_var.set("Scanning... countdown paused")
+            return
+
         self.update_countdown_label()
-        
+
         # Periodically check calendar visibility (every 30 seconds)
         if self.remaining % 30 == 0:
             self.ensure_calendar_visible()
-        
-        if self.timer_running:
-            if self.remaining > 0:
-                self.remaining -= 1
-                self.after(1000, self.start_countdown)
-            else:
-                # When countdown reaches zero, perform a scan
-                print(f"[Scheduler] Auto-scan triggered")
-                try:
-                    # Run scan silently without UI dialogs
-                    self.auto_scan()
-                except Exception as e:
-                    print(f"[Scheduler] Auto-scan error: {e}")
-                    import traceback
-                    traceback.print_exc()
-                # Reset countdown
-                self.remaining = int(self.interval_var.get())
-                self.after(1000, self.start_countdown)
-                
+
+        if self.remaining > 0:
+            self.remaining -= 1
+            self.after(1000, self.start_countdown)
+        else:
+            # When countdown reaches zero, perform a scan. Countdown restarts
+            # only after that scan completes (_manual_scan_worker callback).
+            print(f"[Scheduler] Auto-scan triggered")
+            self.timer_running = False
+            try:
+                self.auto_scan()
+            except Exception as e:
+                print(f"[Scheduler] Auto-scan error: {e}")
+                import traceback
+                traceback.print_exc()
+                if self.scanning_on:
+                    self.after(1000, self._start_countdown_after_scan)
+
     def auto_scan(self):
         """
-        Performs an automated scan without UI dialogs (calls manual_scan with silent=True)
+        Performs an automated scan without UI dialogs (calls manual_scan with silent=True).
+        Interval countdown resumes only when the scan thread finishes.
         """
-        self.countdown_var.set(f"Auto-scanning...")
-        self.master.update()
+        self.countdown_var.set("Auto-scanning...")
         try:
-            self.manual_scan(silent=True)
+            self.master.update_idletasks()
+        except Exception:
+            pass
+        try:
+            self.manual_scan(silent=True, restart_countdown_when_done=True)
         except Exception as e:
             self._log_error(f"Auto-scan error: {e}")
-        # Reset countdown display after a few seconds
-        self.after(3000, lambda: self.update_countdown_label())
-            
+            if self.scanning_on:
+                self.after(0, self._start_countdown_after_scan)
+
     def subtract_ten_seconds(self):
         """Knock 10 seconds off the countdown timer (only when >= 10s remain)."""
+        if getattr(self, '_scan_thread_running', False):
+            return
         if self.remaining >= 10:
             self.remaining -= 10
             self.update_countdown_label()
 
     def update_countdown_label(self):
-        self.countdown_var.set(f"Countdown: {self.remaining}s")
+        if getattr(self, '_scan_thread_running', False):
+            self.countdown_var.set("Scanning... countdown paused")
+        else:
+            self.countdown_var.set(f"Countdown: {self.remaining}s")
         
     def prev_month(self):
         prev = self.current_date - timedelta(days=1)
@@ -1235,9 +1269,34 @@ class MainApp(ttk.Frame):
                 print(f"[GUI] Failed to restore calendar: {e2}")
 
 
+def _docked_geometry_under_teams(root):
+    """
+    Full-width strip directly under the production Teams scan window.
+    Uses TEAMS_SCAN_HEIGHT_RATIO so the monitor app never overlaps Teams.
+    """
+    import pyautogui
+    try:
+        from automation import TEAMS_SCAN_HEIGHT_RATIO
+        teams_ratio = float(TEAMS_SCAN_HEIGHT_RATIO)
+    except Exception:
+        teams_ratio = 0.65
+
+    screen_w, screen_h = pyautogui.size()
+    # Leave a couple of pixels so window borders do not collide.
+    teams_h = max(360, int(screen_h * teams_ratio))
+    y = min(teams_h + 2, max(0, screen_h - 120))
+    # Fill remaining vertical space under Teams, with a modest floor/ceiling.
+    remaining = max(140, screen_h - y)
+    # Keep a slim control bar + calendar; leave a little room for taskbar.
+    height = max(250, min(remaining - 40, 360))
+    if y + height > screen_h - 8:
+        height = max(220, screen_h - y - 8)
+    return f"{screen_w}x{height}+0+{y}"
+
+
 def launch_gui(root, config):
     root.title("Teams Shift Database and Alert")
-    # Restore window size and position if available
+    # Always dock full-width under the Teams scan window for a neat stacked layout.
     import sqlite3
     import os as _os
     DB_PATH = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), 'shifts.db')
@@ -1247,19 +1306,6 @@ def launch_gui(root, config):
         geometry TEXT
     )
     """
-    def get_last_geometry():
-        try:
-            conn = sqlite3.connect(DB_PATH)
-            c = conn.cursor()
-            c.execute(TABLE_SQL)
-            c.execute("SELECT geometry FROM window_geometry WHERE id=1")
-            row = c.fetchone()
-            conn.close()
-            if row:
-                return row[0]
-        except Exception:
-            pass
-        return None
 
     def save_geometry(geom):
         try:
@@ -1272,54 +1318,39 @@ def launch_gui(root, config):
         except Exception:
             pass
 
-    # Set geometry from DB if available, else default, and ensure on-screen
-    geom = get_last_geometry()
-    fixed_height = 750
-    fixed_width = 600
-    import re
-    def is_geometry_onscreen(geom_str):
-        m = re.match(r"(\d+)x(\d+)([+-]\d+)([+-]\d+)", geom_str or "")
-        if not m:
-            return False
-        w, h, x, y = int(m.group(1)), int(m.group(2)), int(m.group(3)), int(m.group(4))
-        screen_w = root.winfo_screenwidth()
-        screen_h = root.winfo_screenheight()
-        # Consider window visible if at least top-left is on screen
-        return (0 <= x < screen_w - 50) and (0 <= y < screen_h - 50)
+    def apply_docked_geometry():
+        use_geom = _docked_geometry_under_teams(root)
+        root.geometry(use_geom)
+        try:
+            root.update_idletasks()
+            # Keep the status line using available width under the toolbar.
+            if hasattr(app, "scan_status_label"):
+                app.scan_status_label.configure(wraplength=max(200, root.winfo_width() - 520))
+        except Exception:
+            pass
+        save_geometry(use_geom)
+        return use_geom
 
-    # Default geometry string
-    default_geom = f"{fixed_width}x{fixed_height}+64+64"
-    use_geom = default_geom
-    if geom:
-        m = re.match(r"(\d+)x(\d+)([+-]\d+)([+-]\d+)", geom)
-        if m and is_geometry_onscreen(geom):
-            use_geom = geom
-    root.geometry(use_geom)
+    # Apply before widgets so first paint is already docked.
+    root.geometry(_docked_geometry_under_teams(root))
 
     def save_window_geometry():
         geom = root.geometry()
         save_geometry(geom)
         root.destroy()
 
-    def on_configure(event):
-        # Save geometry on every move/resize
-        geom = root.geometry()
-        save_geometry(geom)
-
-    root.bind('<Configure>', on_configure)
     app = MainApp(root)
     root.protocol("WM_DELETE_WINDOW", save_window_geometry)
 
-    # Ensure the Quit button is at the top center and performs a forced shutdown
+    # Re-assert dock after the widget tree is realized (and again shortly after
+    # startup) so OS/window-manager chrome cannot leave us overlapping Teams.
+    root.after(50, apply_docked_geometry)
+    root.after(500, apply_docked_geometry)
+
     import os
-    import sys
 
     def force_quit():
         print("[INFO] Application is shutting down forcefully.")
-        # Use os._exit to force immediate termination without cleanup
         os._exit(0)
-
-    # Quit button will be added to the left panel by the MainApp class
-    # (removed from top frame to integrate with left panel layout)
 
 
