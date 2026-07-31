@@ -3,11 +3,22 @@ Teams Shift Monitor Application
 Version tracking and changelog
 """
 
-__version__ = "1.1.6"
-__version_date__ = "2026-07-08"
+__version__ = "1.1.7"
+__version_date__ = "2026-07-31"
 
 # Changelog
 CHANGELOG = """
+Version 1.1.7 (2026-07-31) - Taller Teams scan window for multi-row open shifts
+================================================================================
+🐛 FIX: Personal row clipped when 2+ open-shift rows appear above it
+   - Root cause: TEAMS_SCAN_HEIGHT_RATIO=0.50 (~540px on 1080p) was too short
+     once Bank "Open shifts" stacked a second row for same-day multi-shifts.
+   - Requirement: fit up to 3 open-shift rows above the personal row, with
+     ~1.5 rows of extra margin so the personal row is fully visible for OCR.
+   - Fix: raise TEAMS_SCAN_HEIGHT_RATIO from 0.50 to 0.65 (~702px on 1080p).
+     Live OCR checks at 0.58–0.68 confirmed Month view, Open shifts, and
+     the personal row ("Fray, Laura") remain visible at 0.65.
+
 Version 1.1.6 (2026-07-08) - HOTFIX: Scanning broken by over-aggressive OCR skip
 ==================================================================================
 🐛 FIX: Every month was being skipped with "Could not OCR month/year" warning

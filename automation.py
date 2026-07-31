@@ -110,49 +110,220 @@ if not _auto_logger.handlers:
 _auto_logger.setLevel(logging.INFO)
 _auto_logger.propagate = False
 
+def _teams_windows():
+    from pywinauto import Desktop
+
+    windows = []
+    for win in Desktop(backend="uia").windows():
+        try:
+            title = win.window_text()
+            if title and "microsoft teams" in title.lower():
+                windows.append(win)
+        except Exception:
+            continue
+    return windows
+
+
+def get_teams_window():
+    """Return the first visible Teams window, or None."""
+    teams_windows = _teams_windows()
+    for win in teams_windows:
+        try:
+            if win.is_visible() and win.get_show_state() != 2:  # 2 = minimized
+                return win
+        except Exception:
+            continue
+    return teams_windows[0] if teams_windows else None
+
+
+# Production geometry: full width, short height.
+# ~0.65 leaves room for up to 3 open-shift rows above the personal row
+# (extra rows appear when multiple open shifts fall on the same day),
+# plus a small margin so the personal row is not clipped by the taskbar.
+TEAMS_SCAN_HEIGHT_RATIO = 0.65
+
+
+def configure_teams_window(height_ratio=None):
+    """
+    Restore Teams to the production scan geometry:
+    full screen width x short height at the top of the display.
+    """
+    import time
+    import pyautogui
+
+    if height_ratio is None:
+        height_ratio = TEAMS_SCAN_HEIGHT_RATIO
+
+    try:
+        import win32con
+        import win32gui
+    except ImportError as e:
+        logging.error(f"pywin32 is required to size the Teams window: {e}")
+        return False
+
+    win = get_teams_window()
+    if not win:
+        logging.warning("No suitable Teams window found.")
+        return False
+
+    try:
+        sw, sh = pyautogui.size()
+        target_h = max(360, int(sh * height_ratio))
+        hwnd = win.handle
+        win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+        win32gui.MoveWindow(hwnd, 0, 0, sw, target_h, True)
+        win32gui.SetWindowPos(
+            hwnd,
+            win32con.HWND_TOP,
+            0,
+            0,
+            sw,
+            target_h,
+            win32con.SWP_SHOWWINDOW,
+        )
+        try:
+            win.set_focus()
+        except Exception:
+            pass
+        time.sleep(0.8)
+        return True
+    except Exception as e:
+        logging.error(f"Failed to size Teams window: {e}")
+        return False
+
+
+def maximize_teams_window():
+    """Maximize Teams temporarily so left-rail app icons are fully visible."""
+    import time
+
+    win = get_teams_window()
+    if not win:
+        logging.warning("No suitable Teams window found.")
+        return False
+    try:
+        try:
+            win.maximize()
+        except Exception:
+            import win32con
+            import win32gui
+
+            win32gui.ShowWindow(win.handle, win32con.SW_MAXIMIZE)
+        try:
+            win.set_focus()
+        except Exception:
+            pass
+        time.sleep(1.0)
+        return True
+    except Exception as e:
+        logging.error(f"Failed to maximize Teams window: {e}")
+        return False
+
+
 def focus_teams_window():
     """
-    Use pywinauto to bring Microsoft Teams window to foreground and maximize.
-    Returns True if successful, False otherwise.
+    Bring Microsoft Teams to the foreground in the production scan geometry
+    (full width, short height). Returns True if successful.
     """
-    try:
-        from pywinauto import Desktop
-        import time
-        # Enumerate all top-level windows and filter for Teams
-        windows = Desktop(backend="uia").windows()
-        teams_windows = []
-        for win in windows:
-            try:
-                title = win.window_text()
-                if not title:
-                    continue
-                title_lower = title.lower()
-                # Accept any window with 'microsoft teams' anywhere in the title
-                if "microsoft teams" in title_lower:
-                    teams_windows.append(win)
-            except Exception:
-                continue
-        # Prefer a window that is visible and not minimized
-        for win in teams_windows:
-            try:
-                if win.is_visible() and win.get_show_state() != 2:  # 2 = minimized
-                    win.set_focus()
-                    logging.debug(f"Focused Teams window: {win.window_text()}")
-                    time.sleep(0.7)
-                    return True
-            except Exception:
-                continue
-        # Fallback: try the first Teams window
-        if teams_windows:
-            win = teams_windows[0]
-            win.set_focus()
-            logging.debug(f"Focused first Teams window: {win.window_text()}")
-            time.sleep(0.7)
+    if configure_teams_window():
+        win = get_teams_window()
+        if win:
+            logging.debug(f"Focused Teams window: {win.window_text()}")
             return True
-        logging.warning("No suitable Teams window found.")
-    except Exception as e:
-        logging.error(f"pywinauto failed to focus Teams: {e}")
     return False
+
+
+def is_teams_shifts_page():
+    win = get_teams_window()
+    try:
+        return bool(win and win.window_text().lower().startswith("shifts"))
+    except Exception:
+        return False
+
+
+def ensure_shifts_month_view():
+    """
+    Force the Shifts calendar into Month view (single header row of day numbers).
+    Returns True if Month view appears selected/visible.
+    """
+    import time
+    import pyautogui
+    import pytesseract
+    from difflib import SequenceMatcher
+
+    if not configure_teams_window():
+        return False
+
+    win = get_teams_window()
+    if not win:
+        return False
+
+    rect = win.rectangle()
+    region = (rect.left, rect.top, rect.width(), rect.height())
+    img = pyautogui.screenshot(region=region)
+    text = pytesseract.image_to_string(img).lower()
+
+    # Already on a monthly calendar if the day strip and Month marker are present.
+    if "month" in text and any(token in text for token in ("july", "august", "september", "october", "november", "december", "january", "february", "march", "april", "may", "june")):
+        if "week" not in text or "month:" in text or "people scheduled" in text:
+            # Click Today to anchor current month without changing view mode.
+            find_and_click_template(
+                __import__("os").path.join(__import__("os").path.dirname(__import__("os").path.abspath(__file__)), "today.png"),
+                confidence=0.5,
+                pause=0.3,
+            )
+            time.sleep(1.0)
+            return True
+
+    def _ocr_click(target, x_min=1400, x_max=1900, y_min=80, y_max=320, min_score=0.7):
+        shot = pyautogui.screenshot(region=region)
+        data = pytesseract.image_to_data(shot, output_type=pytesseract.Output.DICT)
+        candidates = []
+        for i, raw in enumerate(data["text"]):
+            cleaned = "".join(ch for ch in raw.strip().lower() if ch.isalpha())
+            if not cleaned:
+                continue
+            score = SequenceMatcher(None, cleaned, target).ratio()
+            left = data["left"][i]
+            top = data["top"][i]
+            if score >= min_score and x_min <= left <= x_max and y_min <= top <= y_max:
+                candidates.append((score, left, top, data["width"][i], data["height"][i], cleaned))
+        if not candidates:
+            return False
+        candidates.sort(reverse=True)
+        _, left, top, width, height, cleaned = candidates[0]
+        x = region[0] + left + width // 2
+        y = region[1] + top + height // 2
+        pyautogui.click(x, y)
+        _automation_log(f"Clicked '{cleaned}' ({target}) at ({x}, {y}) while selecting Month view.")
+        return True
+
+    # Open the view mode dropdown (often labelled Week/Month) then choose Month.
+    if not _ocr_click("week", y_min=90, y_max=160) and not _ocr_click("month", y_min=90, y_max=160):
+        # Fallback hard coords near the known control on 1920-wide layouts.
+        pyautogui.click(region[0] + 1625, region[1] + 130)
+    time.sleep(1.0)
+    if not _ocr_click("month", y_min=150, y_max=320, min_score=0.65):
+        pyautogui.click(region[0] + 1610, region[1] + 270)
+    time.sleep(1.5)
+
+    find_and_click_template(
+        __import__("os").path.join(__import__("os").path.dirname(__import__("os").path.abspath(__file__)), "today.png"),
+        confidence=0.5,
+        pause=0.3,
+    )
+    time.sleep(1.0)
+
+    win = get_teams_window()
+    if not win:
+        return False
+    rect = win.rectangle()
+    final_text = pytesseract.image_to_string(
+        pyautogui.screenshot(region=(rect.left, rect.top, rect.width(), rect.height()))
+    ).lower()
+    ok = "month" in final_text and ("people scheduled" in final_text or "open shifts" in final_text)
+    if not ok:
+        _automation_log("Month view confirmation failed after selection attempt.")
+    return ok
 
 
 def capture_shifts_screen():
@@ -179,8 +350,9 @@ def capture_shifts_screen():
                 _automation_log(f"Could not delete {f}: {e}")
         capture_shifts_screen._screenshots_cleared = True
 
-    # Give Teams window time to fully maximize and stabilize
-    time.sleep(2.0)  # Increased wait time to ensure shifts are fully loaded
+    # Keep Teams in the production short monthly layout before capture.
+    configure_teams_window()
+    time.sleep(1.0)
 
     # Generate a unique filename based on timestamp and scan index if present
     scan_index = getattr(capture_shifts_screen, "_scan_index", None)
@@ -191,25 +363,16 @@ def capture_shifts_screen():
         screenshot_prefix = ""
     screenshot_path = os.path.join(screenshots_dir, f"{screenshot_prefix}shifts_screenshot_{timestamp}.png")
 
-    # Get screen dimensions
-    screen_width, screen_height = pyautogui.size()
-    # Teams shifts typically displays calendar in the main content area
-    # Capture the entire screen except for the bottom 100 pixels
-    calendar_region = {
-        'left': 0,
-        'top': 0,
-        'width': screen_width,
-        'height': screen_height - 100  # trim only the bottom 100 pixels
-    }
+    # Capture the production Teams window region when available.
+    win = get_teams_window()
+    if win is not None:
+        rect = win.rectangle()
+        region_tuple = (rect.left, rect.top, rect.width(), rect.height())
+    else:
+        screen_width, screen_height = pyautogui.size()
+        region_tuple = (0, 0, screen_width, max(320, screen_height // 3))
 
-    logging.debug(f"Capturing region: {calendar_region}")
-
-    region_tuple = (
-        calendar_region['left'],
-        calendar_region['top'],
-        calendar_region['width'],
-        calendar_region['height']
-    )
+    logging.debug(f"Capturing region: {region_tuple}")
 
     try:
         calendar_screenshot = pyautogui.screenshot(region=region_tuple)
@@ -288,6 +451,131 @@ def find_and_click_template(template_path, screenshot=None, confidence=0.9, paus
     except Exception as e:
         logging.error(f"Error in template matching for {template_path}: {e}")
         return None
+
+
+def navigate_to_shifts(prepare_monthly_view=True):
+    """
+    Navigate Teams to the Shifts app and optionally restore the production
+    single-row monthly view (full width, ~1/3 height + Today).
+    """
+    from difflib import SequenceMatcher
+    import os
+    import time
+    import pyautogui
+    import pytesseract
+
+    if not maximize_teams_window():
+        _automation_log("Could not focus/maximize Teams while navigating to Shifts.")
+        return False
+
+    pyautogui.press("esc")
+    time.sleep(0.4)
+
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    shifts_unselected_path = os.path.join(base_dir, "shifts_unselected.png")
+    shifts_selected_path = os.path.join(base_dir, "shifts_selected.png")
+    dots_path = os.path.join(base_dir, "dots.png")
+    away_icon_path = os.path.join(base_dir, "away_icon.png")
+    today_path = os.path.join(base_dir, "today.png")
+
+    clicked = find_and_click_template(shifts_unselected_path, confidence=0.85, pause=0.5)
+    if not clicked:
+        clicked = find_and_click_template(shifts_selected_path, confidence=0.85, pause=0.5)
+
+    if not clicked:
+        # Fall back: open Calendar rail / More apps and OCR-select Shifts.
+        if not find_and_click_template(away_icon_path, confidence=0.8, pause=0.5):
+            _automation_log("Pinned Shifts icon and away/calendar fallback both unavailable.")
+        time.sleep(2)
+        maximize_teams_window()
+        if find_and_click_template(dots_path, confidence=0.85, pause=0.5):
+            time.sleep(1.2)
+            data = pytesseract.image_to_data(
+                pyautogui.screenshot(), output_type=pytesseract.Output.DICT
+            )
+            candidates = []
+            for index, text in enumerate(data["text"]):
+                cleaned = "".join(ch for ch in text.strip().lower() if ch.isalpha())
+                if not cleaned:
+                    continue
+                score = SequenceMatcher(None, cleaned, "shifts").ratio()
+                left = data["left"][index]
+                top = data["top"][index]
+                if score >= 0.55 and 40 <= left <= 300 and 40 <= top <= 1000:
+                    candidates.append(
+                        (
+                            score,
+                            cleaned,
+                            left,
+                            top,
+                            data["width"][index],
+                            data["height"][index],
+                        )
+                    )
+            if candidates:
+                candidates.sort(reverse=True)
+                _, text, left, top, width, height = candidates[0]
+                x = left + width // 2
+                y = top + height // 2
+                pyautogui.click(x, y)
+                _automation_log(f"Selected Shifts from More apps menu at ({x}, {y}) via '{text}'.")
+                clicked = True
+
+    if not clicked:
+        _automation_log("Could not navigate Teams to Shifts.")
+        return False
+
+    time.sleep(8)
+    if not is_teams_shifts_page():
+        _automation_log("Teams did not land on the Shifts page after navigation.")
+        return False
+
+    if prepare_monthly_view:
+        if not configure_teams_window():
+            _automation_log("Reached Shifts but failed to restore the production window size.")
+            return False
+        if not ensure_shifts_month_view():
+            _automation_log("Reached Shifts but could not lock Month view.")
+            # Still return True if we are on Shifts; scan may recover via Today.
+            return is_teams_shifts_page()
+
+    return is_teams_shifts_page()
+
+
+def refresh_teams_shifts_view():
+    """
+    Force-refresh Teams Shifts and restore production monthly single-row view.
+    Returns True on success.
+    """
+    import os
+    import time
+    import pyautogui
+
+    # Navigate away then back to force a full Shifts reload.
+    if not maximize_teams_window():
+        return False
+
+    away_icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "away_icon.png")
+
+    pyautogui.press("esc")
+    time.sleep(0.3)
+    # Click a non-Shifts rail icon when available so the later Shifts click reloads the app.
+    find_and_click_template(away_icon_path, confidence=0.8, pause=0.5)
+    time.sleep(2)
+
+    if not navigate_to_shifts(prepare_monthly_view=True):
+        return False
+
+    # Extra hard refresh once we know we are on Shifts at production size.
+    if not focus_teams_window():
+        return False
+    pyautogui.hotkey("ctrl", "r")
+    _automation_log("Sent Ctrl+R to refresh Teams Shifts.")
+    time.sleep(20)
+
+    if not navigate_to_shifts(prepare_monthly_view=True):
+        return False
+    return is_teams_shifts_page() and ensure_shifts_month_view()
 
 
 def scan_four_months_with_automation(ocr_func, year, month):
