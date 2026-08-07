@@ -1,4 +1,4 @@
-import tkinter as tk
+﻿import tkinter as tk
 from tkinter import ttk, messagebox
 import calendar
 from database import get_shifts_for_month
@@ -214,7 +214,7 @@ class MainApp(ttk.Frame):
         # Place countdown label on a new row, smaller font
         self.countdown_label = ttk.Label(self.timer_frame, textvariable=self.countdown_var, font=("Arial", 9))
         self.countdown_label.grid(row=2, column=0, columnspan=5, padx=5, pady=(2, 0), sticky="w")
-        # Version label — top-right of controls
+        # Version label ÔÇö top-right of controls
         ttk.Label(self.timer_frame, text=f"v{APP_VERSION}", font=("Arial", 8), foreground="grey").grid(row=0, column=6, padx=10, pady=2, sticky="e")
         self.timer_running = True  # Start timer immediately
         self.remaining = int(self.interval_var.get())
@@ -338,6 +338,7 @@ class MainApp(ttk.Frame):
     def refresh_teams_shifts(self):
         import pyautogui
         import time
+        import os
         import threading
         from datetime import datetime
         from email_alert import send_email_alert
@@ -364,77 +365,44 @@ class MainApp(ttk.Frame):
         for attempt in range(1, max_attempts + 1):
             try:
                 self.scan_status_var.set(f"[Reset] Attempt {attempt} of {max_attempts}...")
-                # Step 1: Click Calendar (skip if not found - already selected)
-                try:
-                    self.scan_status_var.set("[Reset] Looking for calendar.png...")
-                    cal_btn = pyautogui.locateCenterOnScreen('calendar.png', confidence=0.8)
-                    if not cal_btn:
-                        self.scan_status_var.set("[Reset] Calendar button not found. Assuming already selected, proceeding...")
-                    else:
-                        self.scan_status_var.set(f"[Reset] Found calendar button at {cal_btn}")
-                        pyautogui.click(cal_btn)
-                        time.sleep(10)
-                except pyautogui.ImageNotFoundException:
-                    self.scan_status_var.set("[Reset] Calendar button not found. Assuming already selected, proceeding...")
-                except Exception as e:
-                    self.scan_status_var.set(f"[Reset] Error clicking calendar: {e}. Retrying...")
-                    time.sleep(2)
-                    continue
+                # Step 1: Find Shifts icon - navigate away then back to force a refresh.
+                # If already on Shifts (blue), click Calendar first to leave, then come back.
+                _mod_file = globals().get('__file__')
+                _base_dir = os.path.dirname(os.path.abspath(_mod_file)) if _mod_file else os.getcwd()
+                away_icon_path = os.path.join(_base_dir, 'away_icon.png')
+                shifts_unselected_path = os.path.join(_base_dir, 'shifts_unselected.png')
+                shifts_selected_path = os.path.join(_base_dir, 'shifts_selected.png')
+                from automation import find_and_click_template
 
-                # Step 2: Click Dots (...)
-                try:
-                    self.scan_status_var.set("[Reset] Looking for dots.png...")
-                    dots_btn = pyautogui.locateCenterOnScreen('dots.png', confidence=0.8)
-                    if not dots_btn:
-                        self.scan_status_var.set("[Reset] Dots button not found. Retrying...")
-                        time.sleep(2)
-                        continue
-                    self.scan_status_var.set(f"[Reset] Found dots button at {dots_btn}")
-                    pyautogui.click(dots_btn)
-                    time.sleep(2)
-                except pyautogui.ImageNotFoundException:
-                    self.scan_status_var.set("[Reset] Dots button not found. Retrying...")
+                # Step 1: ALWAYS click away icon first
+                self.scan_status_var.set("[Reset] Step 1: Clicking away icon...")
+                result = find_and_click_template(away_icon_path, confidence=0.8, pause=0.5)
+                if not result:
+                    self.scan_status_var.set("[Reset] Away icon not found. Retrying...")
                     time.sleep(2)
                     continue
-                except Exception as e:
-                    self.scan_status_var.set(f"[Reset] Error clicking dots: {e}. Retrying...")
-                    time.sleep(2)
-                    continue
+                print(f"[Reset] Away icon clicked at {result}")
+                time.sleep(15)
 
-                # Step 3: Click Shifts
-                try:
-                    self.scan_status_var.set("[Reset] Looking for shifts.png...")
-                    # Use the same simple approach as other buttons
-                    shifts_btn = pyautogui.locateCenterOnScreen('shifts.png', confidence=0.9)
-                    if not shifts_btn:
-                        self.scan_status_var.set("[Reset] Shifts button not found. Retrying...")
-                        time.sleep(2)
-                        continue
-                    self.scan_status_var.set(f"[Reset] Found shifts button at {shifts_btn}")
-                    pyautogui.click(shifts_btn)
-                    time.sleep(10)
-                except pyautogui.ImageNotFoundException:
-                    self.scan_status_var.set("[Reset] Shifts button not found (ImageNotFoundException). Retrying...")
+                # Step 2: Click Shifts icon (try unselected first, then selected)
+                self.scan_status_var.set("[Reset] Step 2: Clicking Shifts icon...")
+                result = find_and_click_template(shifts_unselected_path, confidence=0.8, pause=0.5)
+                if not result:
+                    result = find_and_click_template(shifts_selected_path, confidence=0.8, pause=0.5)
+                if not result:
+                    self.scan_status_var.set("[Reset] Shifts icon not found. Retrying...")
                     time.sleep(2)
                     continue
-                except Exception as e:
-                    self.scan_status_var.set(f"[Reset] Error clicking shifts: {e}. Retrying...")
-                    time.sleep(2)
-                    continue
+                print(f"[Reset] Shifts icon clicked at {result}")
+                time.sleep(15)
 
-                # Step 4: Wait for Shifts loaded
+                # Step 3: Wait for Shifts loaded
                 loaded = False
-                for _ in range(10):
-                    try:
-                        loaded_img = pyautogui.locateOnScreen('shiftloaded.png', confidence=0.8)
-                        if loaded_img:
-                            loaded = True
-                            break
-                    except pyautogui.ImageNotFoundException:
-                        # Image not found, continue waiting
-                        pass
-                    except Exception as e:
-                        print(f"[Reset] Error checking for shifts loaded: {e}")
+                shiftloaded_path = os.path.join(_base_dir, 'shiftloaded.png')
+                for _ in range(20):
+                    if find_and_click_template(shiftloaded_path, confidence=0.7, pause=0):
+                        loaded = True
+                        break
                     time.sleep(1)
                 if not loaded:
                     self.scan_status_var.set("[Reset] Shifts did not finish loading. Retrying...")
@@ -442,28 +410,49 @@ class MainApp(ttk.Frame):
                     continue
 
                 # Success!
-                self.scan_status_var.set("Teams Shifts app refreshed successfully. Resuming scanning.")
+                self.scan_status_var.set("Teams Shifts app refreshed successfully. Will resume scanning at 5am.")
                 
                 # Send success confirmation email
                 try:
                     send_email_alert(
                         "Teams Shifts app reset successful",
-                        "Teams Shifts app was successfully refreshed at midnight. All systems are running normally.",
+                        "Teams Shifts app was successfully refreshed at midnight. Scanning will resume at 5:00 AM.",
                         "russfray74@gmail.com"
                     )
                     print(f"[Reset] Success confirmation email sent")
                 except Exception as e:
                     print(f"[Reset] Failed to send success email: {e}")
                 
-                self.timer_running = True
-                self.scanning_on = True
-                self._scanning = False
-                self.start_countdown()
+                # CRITICAL FIX: Don't resume scanning immediately after midnight reset
+                # Instead, schedule resumption at 5am to avoid nighttime duplicate alerts
+                import datetime as dt
+                now = dt.datetime.now()
+                
+                # Calculate time until 5am
+                next_5am = now.replace(hour=5, minute=0, second=0, microsecond=0)
+                if now.hour >= 5:
+                    # If it's already past 5am today, schedule for 5am tomorrow
+                    next_5am += dt.timedelta(days=1)
+    
+                delay_seconds = int((next_5am - now).total_seconds())
+                
+                print(f"[Reset] Scheduling scan resumption at 5:00 AM (in {delay_seconds} seconds)")
+                self.scan_status_var.set(f"Midnight reset complete. Resuming at 5:00 AM.")
+  
+                # Schedule the countdown to start at 5am
+                def resume_at_5am():
+                    print(f"[Reset] Resuming scanning at 5:00 AM")
+                    self.timer_running = True
+                    self.scanning_on = True
+                    self._scanning = False
+                    self.start_countdown()
+     
+                self.after(delay_seconds * 1000, resume_at_5am)  # Convert to milliseconds
                 return
             except Exception as e:
                 import traceback
-                self.scan_status_var.set(f"[Reset] Error: {e}. Retrying...")
                 traceback.print_exc()
+                self.scan_status_var.set(f"[Reset] Error: {e}. Retrying...")
                 time.sleep(2)
         # If we reach here, all attempts failed
         self.scan_status_var.set("Teams refresh failed after 10 attempts. Emailing admin.")
@@ -480,7 +469,11 @@ class MainApp(ttk.Frame):
 
     def _start_daily_summary_timer(self):
         import threading, datetime
-        from email_db import check_email_sent
+        try:
+            from email_db import check_email_sent
+        except Exception:
+            def check_email_sent():
+                return False
         
         def check_and_send_summary():
             import traceback
@@ -548,7 +541,11 @@ class MainApp(ttk.Frame):
 
     def send_daily_summary_email(self):
         from email_alert import send_summary_email
-        from email_db import check_email_sent
+        try:
+            from email_db import check_email_sent
+        except Exception:
+            def check_email_sent():
+                return False
         if not check_email_sent():
             stats = {
                 'scan_count': self.scan_count_today,
