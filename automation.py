@@ -536,6 +536,17 @@ def _ocr_find_token(target, region=None, min_score=0.65, x_min=None, x_max=None,
     if y_max is None:
         y_max = height
 
+    # OCR only the requested crop: full-window OCR misses small toolbar labels
+    # such as the Day/Week/Month view selector.
+    crop_x0 = max(0, int(x_min))
+    crop_y0 = max(0, int(y_min))
+    crop_x1 = min(shot.size[0], int(x_max))
+    crop_y1 = min(shot.size[1], int(y_max))
+    crop_offset_x = crop_offset_y = 0
+    if crop_x1 - crop_x0 > 20 and crop_y1 - crop_y0 > 20:
+        shot = shot.crop((crop_x0, crop_y0, crop_x1, crop_y1))
+        crop_offset_x, crop_offset_y = crop_x0, crop_y0
+
     try:
         data = pytesseract.image_to_data(shot, output_type=pytesseract.Output.DICT)
     except Exception as exc:
@@ -548,8 +559,8 @@ def _ocr_find_token(target, region=None, min_score=0.65, x_min=None, x_max=None,
         if not cleaned:
             continue
         score = SequenceMatcher(None, cleaned, target).ratio()
-        left = data["left"][index]
-        top = data["top"][index]
+        left = data["left"][index] + crop_offset_x
+        top = data["top"][index] + crop_offset_y
         token_w = data["width"][index]
         token_h = data["height"][index]
         if score >= min_score and x_min <= left <= x_max and y_min <= top <= y_max:
@@ -972,8 +983,8 @@ def _select_month_from_view_menu(region):
 
     if not opened:
         # Scaled fallback near historical 1920x1080 control position.
-        fallback_x = left + int(width * 0.845)
-        fallback_y = top + int(height * 0.145)
+        fallback_x = left + int(width * 0.852)
+        fallback_y = top + int(1080 * 0.119)
         _click_xy(fallback_x, fallback_y, pause=0.45)
         _automation_log(f"Opened view menu via scaled fallback at ({fallback_x}, {fallback_y}).")
 
@@ -997,8 +1008,8 @@ def _select_month_from_view_menu(region):
         _automation_log(f"Selected Month via OCR '{cleaned}' ({score:.2f}) at ({x}, {y}).")
         return True
 
-    fallback_month_x = left + int(width * 0.84)
-    fallback_month_y = top + int(height * 0.30)
+    fallback_month_x = left + int(width * 0.843)
+    fallback_month_y = top + int(1080 * 0.249)
     _click_xy(fallback_month_x, fallback_month_y, pause=0.5)
     _automation_log(f"Selected Month via scaled fallback at ({fallback_month_x}, {fallback_month_y}).")
     # Dismiss any residual popover.
