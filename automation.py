@@ -838,8 +838,14 @@ def dismiss_shifts_popups(max_rounds=3):
         for token in tokens:
             for phrase in marker_phrases:
                 # Single-token fuzzy match or phrase present in full OCR.
-                score = SequenceMatcher(None, token["cleaned"], phrase).ratio()
-                if score >= 0.72 or phrase in full_text:
+                # Fuzzy matching only for long tokens; short calendar text (dates,
+                # names) was triggering false popup detection and blind clicks.
+                score = (
+                    SequenceMatcher(None, token["cleaned"], phrase).ratio()
+                    if len(token["cleaned"]) >= 6 and len(phrase) >= 6
+                    else 0.0
+                )
+                if score >= 0.85 or (len(phrase) >= 6 and f" {phrase} " in f" {full_text} "):
                     marker_hits.append(token)
                     break
 
@@ -1706,7 +1712,7 @@ This usually indicates:
 
 Please check Teams is still logged in and working properly.
 
-Time: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"""
+Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"""
                         
                         send_email_alert(subject, body, "russfray74@gmail.com")
                         _automation_log("[EMAIL] Navigation warning email sent")

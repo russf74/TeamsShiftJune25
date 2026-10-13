@@ -3,11 +3,21 @@ Teams Shift Monitor Application
 Version tracking and changelog
 """
 
-__version__ = "1.2.12"
+__version__ = "1.2.14"
 __version_date__ = "2026-10-13"
 
 # Changelog
 CHANGELOG = """
+Version 1.2.14 (2026-10-13) - Month view switch + stop false popup dismissal
+===============================================================================
+FIX: Teams opens in Day view after a reboot and the startup refresh could not
+    switch to Month view. OCR token lookup now runs on the requested crop and
+    the click fallbacks match the real layout.
+FIX: Popup detection fuzzy-matched ordinary calendar text, so blind "close"
+    clicks knocked Teams out of Month view and December/January scans were
+    skipped or read the wrong month. Matching is now whole-word on long phrases.
+FIX: Navigation-warning email crashed on a datetime import mix-up.
+
 Version 1.2.12 (2026-10-13) - Tolerate OCR errors in month label
 ===============================================================================
 FIX: Month label OCR often returned 'Yctober' / 'Jecember', so the month could
