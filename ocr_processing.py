@@ -12,6 +12,42 @@ logging.basicConfig(
     format='[%(levelname)s] %(message)s'
 )
 
+
+def _parse_month_year_text(month_label_text):
+    month_names = {}
+    for month_num in range(1, 13):
+        month_names[calendar.month_name[month_num].lower()] = month_num
+        month_names[calendar.month_abbr[month_num].lower()] = month_num
+    month_pattern = '|'.join(
+        re.escape(name) for name in sorted(month_names, key=len, reverse=True)
+    )
+    match = re.search(
+        rf'\b({month_pattern})\b.*?\b(20\d{{2}})\b',
+        month_label_text,
+        re.IGNORECASE,
+    )
+    if match:
+        return month_names[match.group(1).lower()], int(match.group(2))
+
+    # Tolerate single-character OCR errors (e.g. "Jecember", "Yctober") but
+    # only when exactly one month is a clearly closest match.
+    year_match = re.search(r'\b(20\d{2})\b', month_label_text)
+    if not year_match:
+        return None
+    import difflib
+    best = {}
+    for token in re.findall(r'[A-Za-z]{3,}', month_label_text[:year_match.start()]):
+        for month_num in range(1, 13):
+            ratio = difflib.SequenceMatcher(
+                None, token.lower(), calendar.month_name[month_num].lower()
+            ).ratio()
+            if ratio >= 0.8:
+                best[month_num] = max(best.get(month_num, 0), ratio)
+    if len(best) != 1:
+        return None
+    return next(iter(best)), int(year_match.group(1))
+
+
 def extract_shifts_from_image(image_path, year, month):
     """
     Detects open and booked shifts in Teams Shifts screenshot from distinct rows.
@@ -95,26 +131,13 @@ def extract_shifts_from_image(image_path, year, month):
         else:
             logging.debug("Static month label crop is empty (no arrow template).")
 
-    month_num = month # Default to input
-    year_num = year   # Default to input
-    month_names = {m.lower(): i for i, m in enumerate(calendar.month_name) if m}
-    # Updated regex for more robust month/year parsing
-    match_date_text = re.search(r'([A-Za-z]+)\s*.*?\b(20\d{2})\b', month_label_text)
-    if match_date_text:
-        m_name = match_date_text.group(1).lower()
-        y_val_str = match_date_text.group(2) # Get the year string
-        try:
-            y_val = int(y_val_str)
-            if m_name in month_names:
-                month_num = month_names[m_name]
-                year_num = y_val
-                logging.debug(f"Parsed month/year from screenshot: {month_num}/{year_num}")
-            else:
-                logging.warning(f"Could not parse month name '{m_name}' from OCR label '{month_label_text}'. Using input {month}/{year}.")
-        except ValueError:
-            logging.warning(f"Could not convert year '{y_val_str}' to int from OCR label '{month_label_text}'. Using input {month}/{year}.")
-    else:
-        logging.warning(f"Could not parse month/year from OCR label '{month_label_text}'. Using input {month}/{year}.")
+    parsed_month_year = _parse_month_year_text(month_label_text)
+    if parsed_month_year is None:
+        raise ValueError(
+            f"Could not verify month/year from screenshot label '{month_label_text}'"
+        )
+    month_num, year_num = parsed_month_year
+    logging.debug(f"Parsed month/year from screenshot: {month_num}/{year_num}")
     # --- End of Month/Year OCR ---
 
     all_shifts_map = {}
@@ -191,19 +214,6 @@ def extract_month_year_from_image(image_path):
         if month_label_crop.size > 0:
             month_label_gray = cv2.cvtColor(month_label_crop, cv2.COLOR_BGR2GRAY)
             month_label_text = pytesseract.image_to_string(month_label_gray, config='--psm 7').strip()
-    month_names = {m.lower(): i for i, m in enumerate(calendar.month_name) if m}
-    match_date_text = re.search(r'([A-Za-z]+)\s*.*?\b(20\d{2})\b', month_label_text)
-    if match_date_text:
-        m_name = match_date_text.group(1).lower()
-        y_val_str = match_date_text.group(2)
-        try:
-            y_val = int(y_val_str)
-            if m_name in month_names:
-                month_num = month_names[m_name]
-                year_num = y_val
-                return month_num, year_num
-        except Exception:
-            pass
-    return None, None
+    return _parse_month_year_text(month_label_text) or (None, None)
 
 # ...existing code...

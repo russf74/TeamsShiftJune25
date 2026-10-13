@@ -6,7 +6,7 @@ except Exception:
 
 import tkinter as tk
 from tkinter import messagebox
-from database import init_db
+from database import init_db, remove_past_shifts, cleanup_erroneous_open_shifts, record_verified_bookings
 from gui import launch_gui
 from config import load_config
 from version import __version__, print_version
@@ -23,9 +23,17 @@ def setup_logging():
      level=logging.INFO,
      format='[%(levelname)s] %(message)s'
   )
+    # Persist crashes/startup so a dead monitor is visible after reboot.
+    from logging.handlers import RotatingFileHandler
+    app_log = os.path.join(os.path.dirname(os.path.abspath(__file__)), "app_runtime.log")
+    file_handler = RotatingFileHandler(app_log, maxBytes=2 * 1024 * 1024, backupCount=2)
+    file_handler.setLevel(logging.INFO)
+    file_handler.setFormatter(logging.Formatter("[%(asctime)s] [%(levelname)s] %(message)s", "%Y-%m-%d %H:%M:%S"))
+    logging.getLogger().addHandler(file_handler)
     # Add timestamp formatter for all loggers
     for handler in logging.root.handlers:
-        handler.setFormatter(logging.Formatter('[%(levelname)s] %(message)s'))
+        if not isinstance(handler, RotatingFileHandler):
+            handler.setFormatter(logging.Formatter('[%(levelname)s] %(message)s'))
     
     # Print version banner
     print_version()
@@ -66,6 +74,22 @@ def main():
     kill_other_instances()
     # Initialize database and config
     init_db()
+    # Remove any shifts whose dates have already passed
+    remove_past_shifts()
+    # Remove open shifts that were incorrectly detected from unavailable ('U') shift
+    # tiles in Teams (identified from the purple/lavender colour blocks in prior scans).
+    # These had alerted=0 so no alert was ever sent; they will be re-evaluated correctly
+    # on the next scan now that the OCR fix is in place.
+    cleanup_erroneous_open_shifts([
+        '2026-06-17',  # scan 0 – purple block at x=1132 (June, scan 2026-06-22)
+        '2026-07-15',  # scan 1 – purple block at x=997  (July,  scan 2026-06-22)
+        '2026-08-04',  # scan 2 – purple block at x=406  (Aug,   scan 2026-06-22)
+    ])
+    # User-confirmed booking that late-month tile rejection / A-vote OCR missed.
+    record_verified_bookings(
+        ["2026-09-26"],
+        "user-confirmed booking missed on late-month personal row",
+    )
     config = load_config()
 
     # Start web status server in background

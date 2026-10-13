@@ -38,6 +38,39 @@ def get_last_email_sent_time():
             return None
     return None
 
+def check_midnight_reset_sent(day=None):
+    """Return True if today's midnight reset email has already been sent."""
+    conn = sqlite3.connect(get_db_path())
+    c = conn.cursor()
+    c.execute(
+        '''CREATE TABLE IF NOT EXISTS midnight_reset_log
+           (date TEXT PRIMARY KEY, sent INTEGER, sent_time TEXT)'''
+    )
+    target = (day or date.today()).isoformat()
+    c.execute("SELECT sent FROM midnight_reset_log WHERE date = ?", (target,))
+    result = c.fetchone()
+    conn.close()
+    return result is not None and result[0] == 1
+
+
+def mark_midnight_reset_sent(day=None):
+    """Record that the midnight reset email was sent for the given day."""
+    conn = sqlite3.connect(get_db_path())
+    c = conn.cursor()
+    c.execute(
+        '''CREATE TABLE IF NOT EXISTS midnight_reset_log
+           (date TEXT PRIMARY KEY, sent INTEGER, sent_time TEXT)'''
+    )
+    target = (day or date.today()).isoformat()
+    now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    c.execute(
+        "INSERT OR REPLACE INTO midnight_reset_log (date, sent, sent_time) VALUES (?, 1, ?)",
+        (target, now_str),
+    )
+    conn.commit()
+    conn.close()
+
+
 def mark_email_sent():
     """Mark that the summary email has been sent today, with timestamp"""
     import os

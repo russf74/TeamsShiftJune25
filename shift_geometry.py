@@ -72,6 +72,12 @@ def date_for_tile(rect, anchors, image_width, year, month):
     days_in_month = calendar.monthrange(year, month)[1]
     grid_left, column_width = calendar_grid(anchors, image_width, days_in_month)
     day = int((x + width / 2 - grid_left) // column_width) + 1
+    # Late-month tiles sit against the right screenshot edge and can land
+    # a fraction past the last column; keep them on the last valid day.
+    if day == days_in_month + 1:
+        day = days_in_month
+    elif day == 0 and (x + width / 2) >= grid_left - (column_width * 0.25):
+        day = 1
     if not 1 <= day <= days_in_month:
         return None
     return f"{year:04d}-{month:02d}-{day:02d}"
@@ -100,7 +106,12 @@ def detect_tiles(image, y1, y2, min_width=18, min_height=18):
     tiles = []
     for contour in contours:
         x, y, w, h = cv2.boundingRect(contour)
-        if x == 0 or x + w >= width or w > width * 0.5 or h > (y2 - y1) * 0.9:
+        # Drop full-width chrome/borders, but keep compact day tiles that sit
+        # against the right edge (e.g. 26-30 Sep). Those used to be discarded
+        # by x + w >= width and never became open or booked observations.
+        if w > width * 0.5 or h > (y2 - y1) * 0.9:
+            continue
+        if x == 0 and w > 80:
             continue
         if w < min_width or h < min_height:
             continue

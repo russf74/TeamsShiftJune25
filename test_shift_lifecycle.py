@@ -51,8 +51,44 @@ class ShiftLifecycleTests(unittest.TestCase):
         database.reconcile_month_observations(2030, 2, set(), set())
         self.assertIsNone(self.fetchone("SELECT 1 FROM shifts WHERE date = ? AND shift_type = 'booked'", (date_str,)))
 
+    def test_user_confirmed_booking_survives_missed_scans(self):
+        date_str = "2026-09-26"
+        recorded = database.record_verified_bookings(
+            [date_str],
+            "user-confirmed booking missed on late-month personal row",
+        )
+        self.assertEqual(recorded, [date_str])
+        database.reconcile_month_observations(2026, 9, set(), set())
+        database.reconcile_month_observations(2026, 9, set(), set())
+        row = self.fetchone(
+            "SELECT shift_type, confirmed_email_sent, email_status FROM shifts WHERE date = ?",
+            (date_str,),
+        )
+        self.assertEqual(row, ("booked", 1, "not_required"))
+
+    def test_open_shift_requires_two_healthy_observations(self):
+        date_str = "2030-03-12"
+
+        first = database.reconcile_month_observations(2030, 3, {date_str}, set())
+        self.assertEqual(first["new_open"], [])
+        self.assertEqual(self.fetchone("SELECT detection_count FROM open_shift_candidates WHERE date = ?", (date_str,))[0], 1)
+        self.assertIsNone(self.fetchone("SELECT 1 FROM shifts WHERE date = ? AND shift_type = 'open'", (date_str,)))
+
+        # One-off false positives (e.g. midnight stale capture) must not survive.
+        database.reconcile_month_observations(2030, 3, set(), set())
+        self.assertIsNone(self.fetchone("SELECT 1 FROM open_shift_candidates WHERE date = ?", (date_str,)))
+        self.assertIsNone(self.fetchone("SELECT 1 FROM shifts WHERE date = ? AND shift_type = 'open'", (date_str,)))
+
+        second_first = database.reconcile_month_observations(2030, 3, {date_str}, set())
+        self.assertEqual(second_first["new_open"], [])
+        confirmed = database.reconcile_month_observations(2030, 3, {date_str}, set())
+        self.assertEqual(confirmed["new_open"], [date_str])
+        self.assertIsNotNone(self.fetchone("SELECT 1 FROM shifts WHERE date = ? AND shift_type = 'open'", (date_str,)))
+        self.assertIsNone(self.fetchone("SELECT 1 FROM open_shift_candidates WHERE date = ?", (date_str,)))
+
     def test_healthy_empty_scan_removes_open_shift(self):
         date_str = "2030-03-12"
+        database.reconcile_month_observations(2030, 3, {date_str}, set())
         database.reconcile_month_observations(2030, 3, {date_str}, set())
         self.assertIsNotNone(self.fetchone("SELECT 1 FROM shifts WHERE date = ? AND shift_type = 'open'", (date_str,)))
 
@@ -62,12 +98,14 @@ class ShiftLifecycleTests(unittest.TestCase):
     def test_unhealthy_scan_never_removes_existing_shift(self):
         date_str = "2030-04-02"
         database.reconcile_month_observations(2030, 4, {date_str}, set())
+        database.reconcile_month_observations(2030, 4, {date_str}, set())
 
         database.reconcile_month_observations(2030, 4, set(), set(), scan_healthy=False)
         self.assertIsNotNone(self.fetchone("SELECT 1 FROM shifts WHERE date = ? AND shift_type = 'open'", (date_str,)))
 
     def test_reappearing_open_shift_preserves_alert_history(self):
         date_str = "2030-05-21"
+        database.reconcile_month_observations(2030, 5, {date_str}, set())
         database.reconcile_month_observations(2030, 5, {date_str}, set())
         conn = sqlite3.connect(self.db_path)
         try:
@@ -78,6 +116,7 @@ class ShiftLifecycleTests(unittest.TestCase):
             conn.close()
 
         database.reconcile_month_observations(2030, 5, set(), set())
+        database.reconcile_month_observations(2030, 5, {date_str}, set())
         database.reconcile_month_observations(2030, 5, {date_str}, set())
         self.assertEqual(self.fetchone("SELECT alerted FROM shifts WHERE date = ? AND shift_type = 'open'", (date_str,))[0], 1)
 

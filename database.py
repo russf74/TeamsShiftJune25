@@ -273,6 +273,13 @@ def init_db():
         detection_count INTEGER NOT NULL DEFAULT 1,
         details TEXT
     )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS open_shift_candidates (
+        date TEXT PRIMARY KEY,
+        first_seen_at TEXT NOT NULL,
+        last_seen_at TEXT NOT NULL,
+        detection_count INTEGER NOT NULL DEFAULT 1,
+        details TEXT
+    )''')
     c.execute('''CREATE TABLE IF NOT EXISTS shift_corrections (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         date TEXT NOT NULL,
@@ -303,14 +310,15 @@ def init_db():
 def reconcile_month_observations(year, month, observed_open_dates, observed_booked_dates, scan_healthy=True):
     """Reconcile one successfully scanned month against the current shift state.
 
-    A booked result needs two healthy observations before it is promoted from a
-    candidate to a confirmed booking. Confirmed bookings are removed only after
-    two consecutive healthy scans miss them. This prevents a transient OCR issue
-    from either creating a permanent booking or deleting a genuine one.
+    Open and booked results both need two healthy observations before promotion
+    from candidate to confirmed shift. This stops a single bad OCR/read during
+    midnight refresh or a partially loaded calendar from creating false alerts.
+    Confirmed bookings are removed only after two consecutive healthy scans miss
+    them; confirmed open shifts are removed on the first healthy miss.
     """
     if not scan_healthy:
         logger.warning("Skipping reconciliation for %04d-%02d because the scan was not healthy", year, month)
-        return {"new_open": [], "new_bookings": [], "deleted": [], "candidates": []}
+        return {"new_open": [], "new_bookings": [], "deleted": [], "candidates": [], "open_candidates": []}
 
     start = f"{year:04d}-{month:02d}-01"
     end = f"{year + 1:04d}-01-01" if month == 12 else f"{year:04d}-{month + 1:02d}-01"
@@ -323,23 +331,60 @@ def reconcile_month_observations(year, month, observed_open_dates, observed_book
     new_open = []
     deleted = []
     candidates = []
+    open_candidates = []
 
-    # Open shifts remain immediate because their alerts already have independent
-    # atomic suppression. Do not add an open shift where a confirmed booking exists.
+    # A single open OCR/geometry read is evidence only. Promote after a second
+    # independent healthy observation so midnight/stale captures cannot alert.
+    # Do not add an open shift where a confirmed booking exists.
     for date_str in observed_open_dates:
         c.execute("SELECT 1 FROM shifts WHERE date = ? AND shift_type = 'booked'", (date_str,))
-        if c.fetchone() is None:
-            c.execute("SELECT 1 FROM shifts WHERE date = ? AND shift_type = 'open'", (date_str,))
-            if c.fetchone() is None:
-                history = c.execute("SELECT first_seen, last_alerted FROM shift_history WHERE date = ? AND shift_type = 'open'", (date_str,)).fetchone()
+        if c.fetchone() is not None:
+            c.execute("DELETE FROM open_shift_candidates WHERE date = ?", (date_str,))
+            continue
+        c.execute("SELECT 1 FROM shifts WHERE date = ? AND shift_type = 'open'", (date_str,))
+        if c.fetchone() is not None:
+            c.execute("UPDATE shifts SET last_seen_at = ?, missing_scan_count = 0 WHERE date = ? AND shift_type = 'open'", (now_str, date_str))
+            c.execute("DELETE FROM open_shift_candidates WHERE date = ?", (date_str,))
+            continue
+        c.execute("SELECT detection_count FROM open_shift_candidates WHERE date = ?", (date_str,))
+        candidate = c.fetchone()
+        if candidate is None:
+            c.execute(
+                "INSERT INTO open_shift_candidates(date, first_seen_at, last_seen_at, detection_count) VALUES (?, ?, ?, 1)",
+                (date_str, now_str, now_str),
+            )
+            open_candidates.append(date_str)
+        else:
+            detection_count = candidate[0] + 1
+            if detection_count >= 2:
+                c.execute("DELETE FROM open_shift_candidates WHERE date = ?", (date_str,))
+                history = c.execute(
+                    "SELECT first_seen, last_alerted FROM shift_history WHERE date = ? AND shift_type = 'open'",
+                    (date_str,),
+                ).fetchone()
                 if history is None:
-                    c.execute("INSERT INTO shifts(date, shift_type, count, created_at, last_seen_at, missing_scan_count, email_status) VALUES (?, 'open', 1, ?, ?, 0, 'not_required')", (date_str, now_str, now_str))
-                    c.execute("INSERT INTO shift_history(date, shift_type, first_seen, last_alerted) VALUES (?, 'open', ?, 0)", (date_str, now_str))
+                    c.execute(
+                        "INSERT INTO shifts(date, shift_type, count, created_at, last_seen_at, missing_scan_count, email_status) VALUES (?, 'open', 1, ?, ?, 0, 'not_required')",
+                        (date_str, now_str, now_str),
+                    )
+                    c.execute(
+                        "INSERT INTO shift_history(date, shift_type, first_seen, last_alerted) VALUES (?, 'open', ?, 0)",
+                        (date_str, now_str),
+                    )
                     new_open.append(date_str)
                 else:
-                    c.execute("INSERT INTO shifts(date, shift_type, count, alerted, created_at, last_seen_at, missing_scan_count, email_status) VALUES (?, 'open', 1, ?, ?, ?, 0, 'not_required')", (date_str, history[1], history[0], now_str))
+                    previously_alerted = int(history[1] or 0)
+                    c.execute(
+                        "INSERT INTO shifts(date, shift_type, count, alerted, created_at, last_seen_at, missing_scan_count, email_status) VALUES (?, 'open', 1, ?, ?, ?, 0, 'not_required')",
+                        (date_str, previously_alerted, history[0], now_str),
+                    )
+                    if previously_alerted != 1:
+                        new_open.append(date_str)
             else:
-                c.execute("UPDATE shifts SET last_seen_at = ?, missing_scan_count = 0 WHERE date = ? AND shift_type = 'open'", (now_str, date_str))
+                c.execute(
+                    "UPDATE open_shift_candidates SET detection_count = ?, last_seen_at = ? WHERE date = ?",
+                    (detection_count, now_str, date_str),
+                )
 
     # A single booked OCR read is retained as evidence only. It cannot suppress an
     # open shift or send a confirmation until independently observed again.
@@ -358,6 +403,7 @@ def reconcile_month_observations(year, month, observed_open_dates, observed_book
             if detection_count >= 2:
                 c.execute("DELETE FROM booked_shift_candidates WHERE date = ?", (date_str,))
                 c.execute("DELETE FROM shifts WHERE date = ? AND shift_type = 'open'", (date_str,))
+                c.execute("DELETE FROM open_shift_candidates WHERE date = ?", (date_str,))
                 history = c.execute("SELECT confirmed_email_sent FROM shift_history WHERE date = ? AND shift_type = 'booked'", (date_str,)).fetchone()
                 previously_confirmed = history is not None and history[0] == 1
                 c.execute("INSERT INTO shifts(date, shift_type, count, created_at, last_seen_at, missing_scan_count, email_status, confirmed_email_sent) VALUES (?, 'booked', 1, ?, ?, 0, ?, ?)", (date_str, now_str, now_str, 'sent' if previously_confirmed else 'pending', 1 if previously_confirmed else 0))
@@ -367,11 +413,19 @@ def reconcile_month_observations(year, month, observed_open_dates, observed_book
             else:
                 c.execute("UPDATE booked_shift_candidates SET detection_count = ?, last_seen_at = ? WHERE date = ?", (detection_count, now_str, date_str))
 
-    # A candidate absent from the next healthy scan was not corroborated.
+    # Candidates absent from the next healthy scan were not corroborated.
     candidate_rows = c.execute("SELECT date FROM booked_shift_candidates WHERE date >= ? AND date < ?", (start, end)).fetchall()
     for (date_str,) in candidate_rows:
         if date_str not in observed_booked_dates:
             c.execute("DELETE FROM booked_shift_candidates WHERE date = ?", (date_str,))
+
+    open_candidate_rows = c.execute(
+        "SELECT date FROM open_shift_candidates WHERE date >= ? AND date < ?",
+        (start, end),
+    ).fetchall()
+    for (date_str,) in open_candidate_rows:
+        if date_str not in observed_open_dates:
+            c.execute("DELETE FROM open_shift_candidates WHERE date = ?", (date_str,))
 
     rows = c.execute("SELECT date, shift_type, missing_scan_count FROM shifts WHERE date >= ? AND date < ?", (start, end)).fetchall()
     for date_str, shift_type, missing_count in rows:
@@ -379,6 +433,14 @@ def reconcile_month_observations(year, month, observed_open_dates, observed_book
         if date_str in observed_dates:
             continue
         if shift_type == 'booked':
+            details_row = c.execute(
+                "SELECT details FROM shifts WHERE date = ? AND shift_type = 'booked'",
+                (date_str,),
+            ).fetchone()
+            details = (details_row[0] or "") if details_row else ""
+            if "user-confirmed" in details:
+                logger.warning("Keeping user-confirmed booked shift %s despite missed scan", date_str)
+                continue
             next_missing_count = (missing_count or 0) + 1
             if next_missing_count < 2:
                 c.execute("UPDATE shifts SET missing_scan_count = ? WHERE date = ? AND shift_type = 'booked'", (next_missing_count, date_str))
@@ -392,8 +454,23 @@ def reconcile_month_observations(year, month, observed_open_dates, observed_book
 
     conn.commit()
     conn.close()
-    logger.info("Reconciled %04d-%02d: %d booked candidate(s), %d new booking(s), %d stale row(s) removed", year, month, len(candidates), len(new_bookings), len(deleted))
-    return {"new_open": new_open, "new_bookings": new_bookings, "deleted": deleted, "candidates": candidates}
+    logger.info(
+        "Reconciled %04d-%02d: %d open candidate(s), %d new open, %d booked candidate(s), %d new booking(s), %d stale row(s) removed",
+        year,
+        month,
+        len(open_candidates),
+        len(new_open),
+        len(candidates),
+        len(new_bookings),
+        len(deleted),
+    )
+    return {
+        "new_open": new_open,
+        "new_bookings": new_bookings,
+        "deleted": deleted,
+        "candidates": candidates,
+        "open_candidates": open_candidates,
+    }
 
 def remove_incorrect_bookings(date_list, reason):
     """Remove verified false bookings and preserve an audit trail for the correction."""
@@ -419,6 +496,49 @@ def remove_incorrect_bookings(date_list, reason):
     if corrected:
         logger.warning("Removed verified incorrect booked shift(s): %s. Reason: %s", ", ".join(corrected), reason)
     return corrected
+
+def record_verified_bookings(date_list, reason):
+    """Backfill visually verified assignments without sending retrospective emails."""
+    if not date_list:
+        return []
+    now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    conn = sqlite3.connect(get_db_path())
+    c = conn.cursor()
+    recorded = []
+    for date_str in date_list:
+        try:
+            datetime.strptime(date_str, "%Y-%m-%d")
+        except ValueError:
+            logger.error("Skipping invalid verified booking date: %s", date_str)
+            continue
+        c.execute("DELETE FROM shifts WHERE date = ? AND shift_type = 'open'", (date_str,))
+        c.execute("DELETE FROM open_shift_candidates WHERE date = ?", (date_str,))
+        c.execute("DELETE FROM booked_shift_candidates WHERE date = ?", (date_str,))
+        c.execute("SELECT 1 FROM shifts WHERE date = ? AND shift_type = 'booked'", (date_str,))
+        if c.fetchone() is None:
+            c.execute(
+                "INSERT INTO shifts(date, shift_type, count, confirmed_email_sent, details, created_at, last_seen_at, missing_scan_count, email_status) VALUES (?, 'booked', 1, 1, ?, ?, ?, 0, 'not_required')",
+                (date_str, reason, now_str, now_str),
+            )
+            recorded.append(date_str)
+        else:
+            c.execute(
+                "UPDATE shifts SET details = ?, confirmed_email_sent = 1, email_status = 'not_required', missing_scan_count = 0, last_seen_at = ? WHERE date = ? AND shift_type = 'booked'",
+                (reason, now_str, date_str),
+            )
+        c.execute(
+            "INSERT OR IGNORE INTO shift_history(date, shift_type, first_seen, last_alerted, confirmed_email_sent) VALUES (?, 'booked', ?, 0, 1)",
+            (date_str, now_str),
+        )
+        c.execute(
+            "UPDATE shift_history SET confirmed_email_sent = 1 WHERE date = ? AND shift_type = 'booked'",
+            (date_str,),
+        )
+    conn.commit()
+    conn.close()
+    if recorded:
+        logger.info("Recorded visually verified booked shift(s) without sending email: %s", ", ".join(recorded))
+    return recorded
 
 # --- Calendar/Shift/Availability helpers ---
 def get_shifts_for_month(year, month):
