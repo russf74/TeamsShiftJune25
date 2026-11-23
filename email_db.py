@@ -71,6 +71,39 @@ def mark_midnight_reset_sent(day=None):
     conn.close()
 
 
+def claim_midnight_reset_email(day=None):
+    """Atomically claim today's midnight email. Returns True only for the first caller."""
+    conn = sqlite3.connect(get_db_path(), timeout=30)
+    try:
+        c = conn.cursor()
+        c.execute(
+            '''CREATE TABLE IF NOT EXISTS midnight_reset_log
+               (date TEXT PRIMARY KEY, sent INTEGER, sent_time TEXT)'''
+        )
+        target = (day or date.today()).isoformat()
+        now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        c.execute(
+            "INSERT OR IGNORE INTO midnight_reset_log (date, sent, sent_time) VALUES (?, 1, ?)",
+            (target, now_str),
+        )
+        claimed = c.rowcount == 1
+        conn.commit()
+        return claimed
+    finally:
+        conn.close()
+
+
+def release_midnight_reset_email(day=None):
+    """Release a claim after a failed send so a retry is possible."""
+    conn = sqlite3.connect(get_db_path(), timeout=30)
+    try:
+        target = (day or date.today()).isoformat()
+        conn.execute("DELETE FROM midnight_reset_log WHERE date = ?", (target,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def mark_email_sent():
     """Mark that the summary email has been sent today, with timestamp"""
     import os

@@ -3,11 +3,21 @@ Teams Shift Monitor Application
 Version tracking and changelog
 """
 
-__version__ = "1.2.14"
-__version_date__ = "2026-10-13"
+__version__ = "1.2.15"
+__version_date__ = "2026-11-23"
 
 # Changelog
 CHANGELOG = """
+Version 1.2.15 (2026-11-23) - Fix duplicate midnight confirmation email
+===============================================================================
+FIX: The midnight "reset successful" email could be sent twice. The sent-check
+    and the sent-mark were separate steps around the send, so overlapping
+    resets (timer + startup catch-up) or a timer firing just before 00:00
+    could both send. The email is now claimed atomically in the database
+    before sending, and the claim is released if the send fails.
+LOG: [MIDNIGHT] entries in shift_operations.log record timer fire, startup
+    catch-up decision, claim, send, block and failure (with day/pid/thread).
+
 Version 1.2.14 (2026-10-13) - Month view switch + stop false popup dismissal
 ===============================================================================
 FIX: Teams opens in Day view after a reboot and the startup refresh could not

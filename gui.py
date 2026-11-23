@@ -776,6 +776,12 @@ class MainApp(ttk.Frame):
         now = _dt.datetime.now()
         missed_midnight = now.hour < 5 and not check_midnight_reset_sent(now.date())
         try:
+            import logging as _lg
+            _lg.getLogger('email_alert').info(
+                f"[MIDNIGHT] Startup ready-check at {now:%Y-%m-%d %H:%M:%S} missed_midnight={missed_midnight}")
+        except Exception:
+            pass
+        try:
             if missed_midnight:
                 print("[INFO] Missed midnight reset detected — catching up with confirmation email.")
                 self.scan_status_var.set("Catching up missed midnight Teams refresh...")
@@ -1051,22 +1057,42 @@ class MainApp(ttk.Frame):
 
             if notify:
                 try:
-                    from email_alert import send_email_alert
-                    from email_db import check_midnight_reset_sent, mark_midnight_reset_sent
+                    from email_alert import send_email_alert, logger as _mlog
+                    from email_db import claim_midnight_reset_email, release_midnight_reset_email
+                    import threading as _th
+                    import os
 
-                    if check_midnight_reset_sent():
+                    # Atomic claim: concurrent resets (startup catch-up + midnight timer)
+                    # or a timer firing just before 00:00 must not send twice.
+                    claim_day = (datetime.now() + __import__("datetime").timedelta(hours=1)).date() \
+                        if datetime.now().hour == 23 else datetime.now().date()
+                    _ctx = (f"day={claim_day} resume={resume_scanning} pid={os.getpid()} "
+                            f"thread={_th.current_thread().name}")
+                    if not claim_midnight_reset_email(claim_day):
                         print("[Reset] Midnight confirmation email already sent today, skipping.")
+                        _mlog.warning(f"[MIDNIGHT] Duplicate confirmation email BLOCKED ({_ctx})")
                     else:
-                        send_email_alert(
-                            "Teams Shifts app reset successful",
-                            "Teams Shifts app was successfully refreshed at midnight and locked to "
-                            "calendar Month view. Scanning will resume at 5:00 AM.",
-                            "russfray74@gmail.com",
-                        )
-                        mark_midnight_reset_sent()
-                        print("[Reset] Success confirmation email sent")
+                        _mlog.info(f"[MIDNIGHT] Claimed confirmation email, sending ({_ctx})")
+                        try:
+                            send_email_alert(
+                                "Teams Shifts app reset successful",
+                                "Teams Shifts app was successfully refreshed at midnight and locked to "
+                                "calendar Month view. Scanning will resume at 5:00 AM.",
+                                "russfray74@gmail.com",
+                            )
+                            print("[Reset] Success confirmation email sent")
+                            _mlog.info(f"[MIDNIGHT] Confirmation email SENT ({_ctx})")
+                        except Exception as send_err:
+                            _mlog.error(f"[MIDNIGHT] Send FAILED, claim released ({_ctx}): {send_err}")
+                            release_midnight_reset_email(claim_day)
+                            raise
                 except Exception as e:
                     print(f"[Reset] Failed to send success email: {e}")
+                    try:
+                        import logging as _lg
+                        _lg.getLogger('email_alert').error(f"[MIDNIGHT] Success-email step error: {e}")
+                    except Exception:
+                        pass
 
             if resume_scanning == "scan":
                 clear_midnight_guard = False
@@ -1168,6 +1194,12 @@ class MainApp(ttk.Frame):
 
             def run_midnight_refresh():
                 print(f"[INFO] Triggering midnight Teams Shifts refresh at {datetime.datetime.now():%Y-%m-%d %H:%M:%S}")
+                try:
+                    import logging as _lg
+                    _lg.getLogger('email_alert').info(
+                        f"[MIDNIGHT] Timer fired at {datetime.datetime.now():%Y-%m-%d %H:%M:%S.%f}")
+                except Exception:
+                    pass
                 self.trigger_shift_app_reset()
                 schedule_midnight_refresh(force_next_day=True)
 
